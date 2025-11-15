@@ -1,0 +1,12 @@
+{
+  "name": "shippo-frontend",
+  "version": "1.0.0",
+  "description": "Shipping label comparison and purchase tool",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  }
+}
