@@ -48,6 +48,15 @@ const ShippingApp = {
             this.loadHistory();
         });
 
+        // Address parsing buttons
+        document.getElementById('parse-to-address').addEventListener('click', () => {
+            this.parseAndFillAddress('to');
+        });
+
+        document.getElementById('parse-val-address').addEventListener('click', () => {
+            this.parseAndFillAddress('val');
+        });
+
         // Package preset radio buttons
         document.querySelectorAll('input[name="preset"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
@@ -67,6 +76,201 @@ const ShippingApp = {
                 element.addEventListener('change', () => this.saveFormData());
             }
         });
+    },
+
+    // Parse and fill address from pasted text
+    parseAndFillAddress(prefix) {
+        const pasteText = document.getElementById(`${prefix}-paste`).value.trim();
+
+        if (!pasteText) {
+            this.showError('Please paste an address first');
+            return;
+        }
+
+        const parsed = this.parseAddress(pasteText);
+
+        if (parsed) {
+            document.getElementById(`${prefix}-name`).value = parsed.name || '';
+            document.getElementById(`${prefix}-street`).value = parsed.street || '';
+            document.getElementById(`${prefix}-city`).value = parsed.city || '';
+            document.getElementById(`${prefix}-state`).value = parsed.state || '';
+            document.getElementById(`${prefix}-zip`).value = parsed.zip || '';
+
+            // Clear the paste textarea
+            document.getElementById(`${prefix}-paste`).value = '';
+
+            this.showSuccess('Address parsed successfully!');
+            this.saveFormData();
+        } else {
+            this.showError('Could not parse address. Please check the format.');
+        }
+    },
+
+    // Parse address from text block
+    parseAddress(text) {
+        // Handle single-line addresses first (comma or tab separated)
+        if (!text.includes('\n') && (text.includes(',') || text.includes('\t'))) {
+            return this.parseInlineAddress(text);
+        }
+
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+        if (lines.length === 0) {
+            return null;
+        }
+
+        const parsed = {
+            name: '',
+            street: '',
+            city: '',
+            state: '',
+            zip: ''
+        };
+
+        // Extract ZIP code from anywhere in the text
+        let zipFound = false;
+        for (let i = 0; i < lines.length; i++) {
+            const zipMatch = lines[i].match(/\b(\d{5})(-\d{4})?\b/);
+            if (zipMatch) {
+                parsed.zip = zipMatch[1];
+                zipFound = true;
+                // Remove zip from the line for easier processing
+                lines[i] = lines[i].replace(zipMatch[0], '').trim();
+                break;
+            }
+        }
+
+        // Extract state code (2 uppercase letters, possibly lowercase)
+        let stateFound = false;
+        const stateAbbrevs = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
+
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const stateMatch = lines[i].match(/\b([A-Za-z]{2})\b/g);
+            if (stateMatch) {
+                for (let state of stateMatch) {
+                    if (stateAbbrevs.includes(state.toUpperCase())) {
+                        parsed.state = state.toUpperCase();
+                        stateFound = true;
+                        // Remove state from the line
+                        lines[i] = lines[i].replace(new RegExp('\\b' + state + '\\b', 'i'), '').trim();
+                        break;
+                    }
+                }
+                if (stateFound) break;
+            }
+        }
+
+        // Now extract city - look for city, state pattern or standalone city
+        let cityFound = false;
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i];
+            if (!line) continue;
+
+            // Remove any trailing commas or special chars
+            const cleanLine = line.replace(/[,;]+$/, '').trim();
+
+            // If this line still has text and we haven't found city yet
+            if (cleanLine && !cityFound && !line.match(/^\d+/)) {
+                // Check if this looks like a city (has letters, not just numbers)
+                if (cleanLine.match(/[A-Za-z]{2,}/)) {
+                    parsed.city = cleanLine.replace(/,/g, '').trim();
+                    cityFound = true;
+                    lines[i] = ''; // Clear this line
+                    break;
+                }
+            }
+        }
+
+        // Filter out empty lines again
+        const remainingLines = lines.filter(line => line.length > 0);
+
+        // First remaining line is likely the name
+        if (remainingLines.length > 0) {
+            // Check if first line looks like a name (not all numbers)
+            if (!remainingLines[0].match(/^\d+/) || remainingLines[0].match(/[A-Za-z]/)) {
+                parsed.name = remainingLines[0];
+                remainingLines.shift();
+            }
+        }
+
+        // Everything else is the street address
+        if (remainingLines.length > 0) {
+            parsed.street = remainingLines.join(', ');
+        }
+
+        // If we couldn't parse in lines, try the whole text as one block
+        if (!parsed.street && !parsed.city && !parsed.state && !parsed.zip) {
+            return this.parseInlineAddress(text);
+        }
+
+        // Validate we got at least some data
+        if (!parsed.street && !parsed.city && !parsed.zip) {
+            return null;
+        }
+
+        return parsed;
+    },
+
+    // Parse single-line or comma-separated addresses
+    parseInlineAddress(text) {
+        const parsed = {
+            name: '',
+            street: '',
+            city: '',
+            state: '',
+            zip: ''
+        };
+
+        // Split by comma or tab
+        const parts = text.split(/[,\t]+/).map(p => p.trim()).filter(p => p);
+
+        if (parts.length === 0) return null;
+
+        // Extract ZIP from any part
+        for (let i = 0; i < parts.length; i++) {
+            const zipMatch = parts[i].match(/\b(\d{5})(-\d{4})?\b/);
+            if (zipMatch) {
+                parsed.zip = zipMatch[1];
+                parts[i] = parts[i].replace(zipMatch[0], '').trim();
+            }
+        }
+
+        // Extract state
+        const stateAbbrevs = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
+
+        for (let i = parts.length - 1; i >= 0; i--) {
+            const stateMatch = parts[i].match(/\b([A-Za-z]{2})\b/);
+            if (stateMatch && stateAbbrevs.includes(stateMatch[1].toUpperCase())) {
+                parsed.state = stateMatch[1].toUpperCase();
+                parts[i] = parts[i].replace(stateMatch[0], '').trim();
+                break;
+            }
+        }
+
+        // Filter empty parts
+        const cleanParts = parts.filter(p => p.length > 0);
+
+        // Heuristic: name, street, city pattern
+        if (cleanParts.length >= 3) {
+            parsed.name = cleanParts[0];
+            parsed.street = cleanParts[1];
+            parsed.city = cleanParts[2];
+        } else if (cleanParts.length === 2) {
+            // Could be name + street, or street + city
+            if (cleanParts[0].match(/^\d+/)) {
+                // Starts with number, likely street address
+                parsed.street = cleanParts[0];
+                parsed.city = cleanParts[1];
+            } else {
+                parsed.name = cleanParts[0];
+                parsed.street = cleanParts[1];
+            }
+        } else if (cleanParts.length === 1) {
+            // Just one part, assume it's street
+            parsed.street = cleanParts[0];
+        }
+
+        return parsed;
     },
 
     // Apply package preset

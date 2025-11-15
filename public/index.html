@@ -58,6 +58,17 @@
                                 <!-- To Address -->
                                 <h6 class="text-primary mb-3">Ship To</h6>
                                 <div class="mb-3">
+                                    <label class="form-label">
+                                        <i class="bi bi-clipboard"></i> Paste Full Address (Optional)
+                                        <small class="text-muted">- Auto-fills fields below</small>
+                                    </label>
+                                    <textarea class="form-control" id="to-paste" rows="3" placeholder="Paste address here...&#10;Example:&#10;John Doe&#10;123 Main St&#10;San Francisco, CA 94102"></textarea>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="parse-to-address">
+                                        <i class="bi bi-arrow-down-circle"></i> Parse Address
+                                    </button>
+                                </div>
+                                <hr class="my-3">
+                                <div class="mb-3">
                                     <label class="form-label">Recipient Name</label>
                                     <input type="text" class="form-control" id="to-name" placeholder="John Doe">
                                 </div>
@@ -145,6 +156,17 @@
                                 <h5 class="mb-0">Validate Shipping Address</h5>
                             </div>
                             <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">
+                                        <i class="bi bi-clipboard"></i> Paste Full Address (Optional)
+                                        <small class="text-muted">- Auto-fills fields below</small>
+                                    </label>
+                                    <textarea class="form-control" id="val-paste" rows="3" placeholder="Paste address here...&#10;Example:&#10;John Doe&#10;123 Main St&#10;San Francisco, CA 94102"></textarea>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="parse-val-address">
+                                        <i class="bi bi-arrow-down-circle"></i> Parse Address
+                                    </button>
+                                </div>
+                                <hr class="my-3">
                                 <div class="mb-3">
                                     <label class="form-label">Name</label>
                                     <input type="text" class="form-control" id="val-name" placeholder="John Doe">

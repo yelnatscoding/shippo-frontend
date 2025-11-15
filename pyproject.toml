@@ -1,0 +1,8 @@
+[project]
+name = "shippo-frontend"
+version = "1.0.0"
+description = "Shipping label comparison and purchase tool"
+requires-python = ">=3.12"
+
+[tool.vercel]
+python-version = "3.12"
