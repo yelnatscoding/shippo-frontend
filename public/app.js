@@ -1,7 +1,7 @@
 // Shipping Label Tool - Frontend Application
 const ShippingApp = {
     config: {
-        apiUrl: window.location.hostname === 'localhost' ? 'http://localhost:3000/api' : '/api',
+        apiUrl: window.location.hostname === 'localhost' ? 'https://shippo-frontend-9etef7c20-stanley-huangs-projects.vercel.app/api' : '/api',
         providers: ['shippo', 'easypost', 'shipengine', 'easyship']
     },
 
@@ -21,6 +21,16 @@ const ShippingApp = {
         medium: { length: 10, width: 8, height: 6, weight: 2 },
         large: { length: 16, width: 12, height: 8, weight: 5 },
         custom: { length: null, width: null, height: null, weight: null }
+    },
+
+    // Known signature confirmation surcharges by carrier (as of Jan 2024)
+    // These are added to the base rate when API doesn't return different prices
+    signatureSurcharges: {
+        'USPS': { standard: 3.50, adult: 9.65 },
+        'UPS': { standard: 4.25, adult: 5.25 },
+        'FedEx': { standard: 4.00, adult: 5.50 },
+        'DHL': { standard: 4.50, adult: 6.00 },
+        'default': { standard: 3.50, adult: 9.00 }
     },
 
     // Initialize app
@@ -127,62 +137,98 @@ const ShippingApp = {
             zip: ''
         };
 
-        // Extract ZIP code from anywhere in the text
-        let zipFound = false;
-        for (let i = 0; i < lines.length; i++) {
-            const zipMatch = lines[i].match(/\b(\d{5})(-\d{4})?\b/);
-            if (zipMatch) {
-                parsed.zip = zipMatch[1];
-                zipFound = true;
-                // Remove zip from the line for easier processing
-                lines[i] = lines[i].replace(zipMatch[0], '').trim();
-                break;
-            }
-        }
+        // Common country names to filter out
+        const countryNames = ['United States', 'USA', 'US', 'United Kingdom', 'UK', 'Canada', 'Mexico'];
 
-        // Extract state code (2 uppercase letters, possibly lowercase)
-        let stateFound = false;
+        // Extract state, ZIP, and city from the same line (handles "CA 93203 Arvin" format)
+        let stateZipCityFound = false;
         const stateAbbrevs = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
 
-        for (let i = lines.length - 1; i >= 0; i--) {
-            const stateMatch = lines[i].match(/\b([A-Za-z]{2})\b/g);
-            if (stateMatch) {
-                for (let state of stateMatch) {
-                    if (stateAbbrevs.includes(state.toUpperCase())) {
-                        parsed.state = state.toUpperCase();
-                        stateFound = true;
-                        // Remove state from the line
-                        lines[i] = lines[i].replace(new RegExp('\\b' + state + '\\b', 'i'), '').trim();
-                        break;
-                    }
-                }
-                if (stateFound) break;
-            }
-        }
-
-        // Now extract city - look for city, state pattern or standalone city
-        let cityFound = false;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i];
-            if (!line) continue;
-
-            // Remove any trailing commas or special chars
-            const cleanLine = line.replace(/[,;]+$/, '').trim();
-
-            // If this line still has text and we haven't found city yet
-            if (cleanLine && !cityFound && !line.match(/^\d+/)) {
-                // Check if this looks like a city (has letters, not just numbers)
-                if (cleanLine.match(/[A-Za-z]{2,}/)) {
-                    parsed.city = cleanLine.replace(/,/g, '').trim();
-                    cityFound = true;
+        for (let i = 0; i < lines.length; i++) {
+            // Check for pattern: "CA 93203 Arvin" or "CA 93203-1234 Arvin"
+            const stateZipCityMatch = lines[i].match(/\b([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s+(.+)/i);
+            if (stateZipCityMatch) {
+                const state = stateZipCityMatch[1].toUpperCase();
+                if (stateAbbrevs.includes(state)) {
+                    parsed.state = state;
+                    parsed.zip = stateZipCityMatch[2];
+                    parsed.city = stateZipCityMatch[3].trim();
+                    stateZipCityFound = true;
                     lines[i] = ''; // Clear this line
                     break;
                 }
             }
         }
 
-        // Filter out empty lines again
-        const remainingLines = lines.filter(line => line.length > 0);
+        // If not found, try traditional extraction
+        if (!stateZipCityFound) {
+            // Extract ZIP code from anywhere in the text
+            let zipFound = false;
+            for (let i = 0; i < lines.length; i++) {
+                const zipMatch = lines[i].match(/\b(\d{5})(-\d{4})?\b/);
+                if (zipMatch) {
+                    parsed.zip = zipMatch[1];
+                    zipFound = true;
+                    // Remove zip from the line for easier processing
+                    lines[i] = lines[i].replace(zipMatch[0], '').trim();
+                    break;
+                }
+            }
+
+            // Extract state code
+            let stateFound = false;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                const stateMatch = lines[i].match(/\b([A-Za-z]{2})\b/g);
+                if (stateMatch) {
+                    for (let state of stateMatch) {
+                        if (stateAbbrevs.includes(state.toUpperCase())) {
+                            parsed.state = state.toUpperCase();
+                            stateFound = true;
+                            // Remove state from the line
+                            lines[i] = lines[i].replace(new RegExp('\\b' + state + '\\b', 'i'), '').trim();
+                            break;
+                        }
+                    }
+                    if (stateFound) break;
+                }
+            }
+
+            // Now extract city
+            let cityFound = false;
+
+            for (let i = lines.length - 1; i >= 0; i--) {
+                const line = lines[i];
+                if (!line) continue;
+
+                // Remove any trailing commas or special chars
+                const cleanLine = line.replace(/[,;]+$/, '').trim();
+
+                // Skip if this is a country name
+                if (countryNames.some(country => country.toLowerCase() === cleanLine.toLowerCase())) {
+                    lines[i] = ''; // Clear this line
+                    continue;
+                }
+
+                // If this line still has text and we haven't found city yet
+                if (cleanLine && !cityFound && !line.match(/^\d+/)) {
+                    // Check if this looks like a city (has letters, not just numbers)
+                    if (cleanLine.match(/[A-Za-z]{2,}/)) {
+                        parsed.city = cleanLine.replace(/,/g, '').trim();
+                        cityFound = true;
+                        lines[i] = ''; // Clear this line
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Filter out empty lines and common country names
+        const remainingLines = lines.filter(line => {
+            if (!line || line.length === 0) return false;
+            // Filter out country names (case insensitive)
+            const lineLower = line.toLowerCase().trim();
+            return !countryNames.some(country => country.toLowerCase() === lineLower);
+        });
 
         // First remaining line is likely the name
         if (remainingLines.length > 0) {
@@ -346,7 +392,8 @@ const ShippingApp = {
                 city: document.getElementById('to-city').value.trim(),
                 state: document.getElementById('to-state').value.trim().toUpperCase(),
                 zip: document.getElementById('to-zip').value.trim(),
-                country: 'US'
+                country: 'US',
+                phone: '555-000-0000'  // Default phone for ShipEngine requirement
             };
 
             const fromAddress = {
@@ -355,7 +402,8 @@ const ShippingApp = {
                 city: 'Ontario',
                 state: 'CA',
                 zip: '91761',
-                country: 'US'
+                country: 'US',
+                phone: '555-123-4567'
             };
 
             const parcel = {
@@ -403,18 +451,32 @@ const ShippingApp = {
         } catch (error) {
             this.hideLoading();
             console.error('Error comparing rates:', error);
-            this.showError(error.response?.data?.error || error.message || 'Failed to compare rates');
+            console.error('Error details:', {
+                response: error.response?.data,
+                message: error.message,
+                status: error.response?.status
+            });
+
+            const errorMessage = error.response?.data?.error
+                || error.response?.data?.message
+                || error.message
+                || 'Failed to compare rates. Please check console for details.';
+
+            this.showError(errorMessage);
         }
     },
 
-    // Render rates results
+    // Render rates results with tabs (providers) -> accordions (carriers) -> table (services)
     renderRates(ratesData, errors) {
         const container = document.getElementById('rates-results');
 
         let html = '';
 
-        // Check if we have any rates
-        const totalRates = Object.values(ratesData).reduce((sum, rates) => sum + (rates?.length || 0), 0);
+        // Check if we have any rates (new structure: { provider: { base: [], signature: [] } })
+        const totalRates = Object.values(ratesData).reduce((sum, providerData) => {
+            if (!providerData) return sum;
+            return sum + (providerData.base?.length || 0) + (providerData.signature?.length || 0);
+        }, 0);
 
         if (totalRates === 0) {
             html = `
@@ -429,7 +491,13 @@ const ShippingApp = {
             if (errors && Object.keys(errors).length > 0) {
                 html += '<div class="alert alert-danger mt-3"><strong>Errors:</strong><ul class="mb-0">';
                 Object.entries(errors).forEach(([provider, error]) => {
-                    html += `<li><strong>${provider}:</strong> ${error}</li>`;
+                    if (typeof error === 'object') {
+                        Object.entries(error).forEach(([type, msg]) => {
+                            html += `<li><strong>${provider} (${type}):</strong> ${msg}</li>`;
+                        });
+                    } else {
+                        html += `<li><strong>${provider}:</strong> ${error}</li>`;
+                    }
                 });
                 html += '</ul></div>';
             }
@@ -438,67 +506,207 @@ const ShippingApp = {
             return;
         }
 
-        // Group rates by provider
-        Object.entries(ratesData).forEach(([provider, rates]) => {
-            if (!rates || rates.length === 0) return;
+        // Build provider tabs
+        const providers = Object.keys(ratesData).filter(p => ratesData[p] && (ratesData[p].base?.length > 0 || ratesData[p].signature?.length > 0));
 
+        html += '<ul class="nav nav-tabs mb-3" id="providerTabs" role="tablist">';
+        providers.forEach((provider, index) => {
+            const isActive = index === 0;
+            const baseCount = ratesData[provider].base?.length || 0;
             html += `
-                <div class="provider-section">
-                    <div class="provider-header d-flex justify-content-between align-items-center">
-                        <div>
-                            <span class="provider-name">${provider}</span>
-                            <span class="provider-count ms-2">(${rates.length} options)</span>
-                        </div>
-                        <span class="badge bg-primary">${rates.length}</span>
-                    </div>
-                    <div class="provider-rates">
-            `;
-
-            // Sort rates by price
-            rates.sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount));
-
-            rates.forEach(rate => {
-                const deliveryInfo = rate.estimated_days
-                    ? `${rate.estimated_days} day${rate.estimated_days > 1 ? 's' : ''}`
-                    : 'Delivery time varies';
-
-                html += `
-                    <div class="rate-card" onclick="ShippingApp.selectRate('${rate.object_id}', '${provider}')">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <div class="rate-carrier">${rate.carrier || provider.toUpperCase()}</div>
-                                <div class="rate-service">${rate.servicelevel_name}</div>
-                                <div class="rate-delivery">
-                                    <i class="bi bi-clock"></i> ${deliveryInfo}
-                                </div>
-                            </div>
-                            <div class="text-end">
-                                <div class="rate-price">$${parseFloat(rate.amount).toFixed(2)}</div>
-                                <button class="btn btn-sm btn-primary mt-2" onclick="event.stopPropagation(); ShippingApp.purchaseLabel('${rate.object_id}', '${provider}')">
-                                    Purchase
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            html += `
-                    </div>
-                </div>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link ${isActive ? 'active' : ''}" id="tab-${provider}" data-bs-toggle="tab" data-bs-target="#content-${provider}" type="button" role="tab">
+                        ${provider.toUpperCase()} <span class="badge bg-secondary">${baseCount}</span>
+                    </button>
+                </li>
             `;
         });
+        html += '</ul>';
+
+        // Build tab content
+        html += '<div class="tab-content" id="providerTabContent">';
+        providers.forEach((provider, index) => {
+            const isActive = index === 0;
+            const baseRates = ratesData[provider].base || [];
+            const signatureRates = ratesData[provider].signature || [];
+
+            html += `<div class="tab-pane fade ${isActive ? 'show active' : ''}" id="content-${provider}" role="tabpanel">`;
+
+            // Group rates by carrier
+            const carrierGroups = this._groupRatesByCarrier(baseRates, signatureRates);
+
+            if (Object.keys(carrierGroups).length === 0) {
+                html += '<p class="text-muted">No rates available from this provider.</p>';
+            } else {
+                // Build accordion for each carrier
+                html += `<div class="accordion" id="accordion-${provider}">`;
+
+                let carrierIndex = 0;
+                Object.entries(carrierGroups).forEach(([carrier, services]) => {
+                    const accordionId = `collapse-${provider}-${carrier.replace(/\s+/g, '-')}`;
+                    const isFirst = carrierIndex === 0;
+                    carrierIndex++;
+
+                    html += `
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button ${isFirst ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#${accordionId}">
+                                    <span class="fw-bold">${carrier}</span>
+                                    <span class="badge bg-primary ms-2">${Object.keys(services).length} services</span>
+                                </button>
+                            </h2>
+                            <div id="${accordionId}" class="accordion-collapse collapse ${isFirst ? 'show' : ''}" data-bs-parent="#accordion-${provider}">
+                                <div class="accordion-body p-0">
+                                    <table class="table table-hover rates-table mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Service</th>
+                                                <th>Est. Delivery</th>
+                                                <th class="text-center">No Signature</th>
+                                                <th class="text-center">With Signature</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                    `;
+
+                    // Sort services by base price
+                    const sortedServices = Object.entries(services).sort((a, b) => {
+                        const priceA = a[1].base ? parseFloat(a[1].base.amount) : Infinity;
+                        const priceB = b[1].base ? parseFloat(b[1].base.amount) : Infinity;
+                        return priceA - priceB;
+                    });
+
+                    sortedServices.forEach(([serviceToken, serviceData]) => {
+                        const baseRate = serviceData.base;
+                        const sigRate = serviceData.signature;
+                        const serviceName = baseRate?.servicelevel_name || sigRate?.servicelevel_name || serviceToken;
+                        const estDays = baseRate?.estimated_days || sigRate?.estimated_days;
+                        const deliveryText = estDays ? `${estDays} day${estDays > 1 ? 's' : ''}` : 'Varies';
+
+                        html += `<tr>
+                            <td><strong>${serviceName}</strong></td>
+                            <td><i class="bi bi-clock"></i> ${deliveryText}</td>
+                            <td class="text-center">`;
+
+                        if (baseRate) {
+                            html += `
+                                <div class="rate-cell">
+                                    <span class="rate-price">$${parseFloat(baseRate.amount).toFixed(2)}</span>
+                                    <button class="btn btn-sm btn-primary ms-2" onclick="ShippingApp.purchaseLabel('${baseRate.object_id}', '${provider}', false)">Buy</button>
+                                </div>`;
+                        } else {
+                            html += '<span class="text-muted">N/A</span>';
+                        }
+
+                        html += `</td><td class="text-center">`;
+
+                        if (sigRate && baseRate) {
+                            // Calculate signature price - add surcharge if API returned same price
+                            const baseAmount = parseFloat(baseRate.amount);
+                            const sigAmount = parseFloat(sigRate.amount);
+                            const carrierKey = carrier.toUpperCase();
+                            const surcharges = this.signatureSurcharges[carrierKey] || this.signatureSurcharges['default'];
+
+                            let displayAmount = sigAmount;
+                            let surchargeNote = '';
+
+                            // If prices are the same (test mode), add known surcharge
+                            if (Math.abs(sigAmount - baseAmount) < 0.01) {
+                                displayAmount = baseAmount + surcharges.standard;
+                                surchargeNote = `<small class="text-muted d-block">+$${surcharges.standard.toFixed(2)} sig fee</small>`;
+                            }
+
+                            html += `
+                                <div class="rate-cell">
+                                    <div>
+                                        <span class="rate-price">$${displayAmount.toFixed(2)}</span>
+                                        ${surchargeNote}
+                                    </div>
+                                    <button class="btn btn-sm btn-success ms-2" onclick="ShippingApp.purchaseLabel('${sigRate.object_id}', '${provider}', true)">Buy</button>
+                                </div>`;
+                        } else if (sigRate) {
+                            html += `
+                                <div class="rate-cell">
+                                    <span class="rate-price">$${parseFloat(sigRate.amount).toFixed(2)}</span>
+                                    <button class="btn btn-sm btn-success ms-2" onclick="ShippingApp.purchaseLabel('${sigRate.object_id}', '${provider}', true)">Buy</button>
+                                </div>`;
+                        } else {
+                            html += '<span class="text-muted">N/A</span>';
+                        }
+
+                        html += '</td></tr>';
+                    });
+
+                    html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+            }
+
+            html += '</div>';
+        });
+        html += '</div>';
 
         // Show errors if any
         if (errors && Object.keys(errors).length > 0) {
             html += '<div class="alert alert-warning mt-3"><strong>Some providers had errors:</strong><ul class="mb-0">';
             Object.entries(errors).forEach(([provider, error]) => {
-                html += `<li><strong>${provider}:</strong> ${error}</li>`;
+                if (typeof error === 'object') {
+                    Object.entries(error).forEach(([type, msg]) => {
+                        html += `<li><strong>${provider} (${type}):</strong> ${msg}</li>`;
+                    });
+                } else {
+                    html += `<li><strong>${provider}:</strong> ${error}</li>`;
+                }
             });
             html += '</ul></div>';
         }
 
         container.innerHTML = html;
+    },
+
+    // Helper: Group rates by carrier, then by service token
+    // Keeps the CHEAPEST rate per service when multiple variants exist (e.g., Priority Mail package vs flat rate boxes)
+    _groupRatesByCarrier(baseRates, signatureRates) {
+        const groups = {};
+
+        // Process base rates - keep cheapest per carrier/service
+        baseRates.forEach(rate => {
+            const carrier = rate.provider || rate.carrier || 'Unknown';
+            const serviceToken = rate.servicelevel_token || rate.servicelevel_name;
+
+            if (!groups[carrier]) groups[carrier] = {};
+            if (!groups[carrier][serviceToken]) groups[carrier][serviceToken] = {};
+
+            // Only set if no existing rate OR this rate is cheaper
+            const existing = groups[carrier][serviceToken].base;
+            if (!existing || parseFloat(rate.amount) < parseFloat(existing.amount)) {
+                groups[carrier][serviceToken].base = rate;
+            }
+        });
+
+        // Process signature rates - keep cheapest per carrier/service
+        signatureRates.forEach(rate => {
+            const carrier = rate.provider || rate.carrier || 'Unknown';
+            const serviceToken = rate.servicelevel_token || rate.servicelevel_name;
+
+            if (!groups[carrier]) groups[carrier] = {};
+            if (!groups[carrier][serviceToken]) groups[carrier][serviceToken] = {};
+
+            // Only set if no existing rate OR this rate is cheaper
+            const existing = groups[carrier][serviceToken].signature;
+            if (!existing || parseFloat(rate.amount) < parseFloat(existing.amount)) {
+                groups[carrier][serviceToken].signature = rate;
+            }
+        });
+
+        return groups;
     },
 
     // Select a rate
@@ -514,9 +722,10 @@ const ShippingApp = {
     },
 
     // Purchase label
-    async purchaseLabel(rateId, provider) {
+    async purchaseLabel(rateId, provider, signature = false) {
         try {
-            const confirmed = confirm('Purchase this shipping label?');
+            const sigText = signature ? ' with signature confirmation' : '';
+            const confirmed = confirm(`Purchase this shipping label${sigText}?`);
             if (!confirmed) return;
 
             this.showLoading('Purchasing label and uploading to Google Drive...');
@@ -526,7 +735,8 @@ const ShippingApp = {
                 provider: provider,
                 format: 'PDF',
                 from_address: this.state.fromAddress,
-                to_address: this.state.toAddress
+                to_address: this.state.toAddress,
+                signature: signature
             });
 
             this.hideLoading();
@@ -550,7 +760,18 @@ const ShippingApp = {
         } catch (error) {
             this.hideLoading();
             console.error('Error purchasing label:', error);
-            this.showError(error.response?.data?.error || error.message || 'Failed to purchase label');
+            console.error('Error details:', {
+                response: error.response?.data,
+                message: error.message,
+                status: error.response?.status
+            });
+
+            const errorMessage = error.response?.data?.error
+                || error.response?.data?.message
+                || error.message
+                || 'Failed to purchase label. Please check console for details.';
+
+            this.showError(errorMessage);
         }
     },
 
@@ -644,7 +865,18 @@ const ShippingApp = {
         } catch (error) {
             this.hideLoading();
             console.error('Error validating address:', error);
-            this.showError(error.response?.data?.error || error.message || 'Failed to validate address');
+            console.error('Error details:', {
+                response: error.response?.data,
+                message: error.message,
+                status: error.response?.status
+            });
+
+            const errorMessage = error.response?.data?.error
+                || error.response?.data?.message
+                || error.message
+                || 'Failed to validate address. Please check console for details.';
+
+            this.showError(errorMessage);
         }
     },
 
@@ -834,7 +1066,18 @@ const ShippingApp = {
     },
 
     showError(message) {
-        alert(`Error: ${message}`);
+        // Handle case where message is an object
+        let errorText = message;
+        if (typeof message === 'object' && message !== null) {
+            if (message.message) {
+                errorText = message.message;
+            } else if (message.error) {
+                errorText = message.error;
+            } else {
+                errorText = JSON.stringify(message);
+            }
+        }
+        alert(`Error: ${errorText}`);
     },
 
     showSuccess(message) {
