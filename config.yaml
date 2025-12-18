@@ -1,0 +1,24 @@
+# Shippo Tool Configuration
+
+# Default sender address (saves typing for repeated shipments)
+default_sender:
+  name: "JunQ Trading Technology Inc."
+  street1: "2755 E Philadelphia St"
+  street2: ""
+  city: "Ontario"
+  state: "CA"
+  zip: "91761"
+  country: "US"
+  phone: "+19178650776"
+  email: "gao@junqmarket.com"
+
+# User preferences
+preferences:
+  # Automatically select cheapest rate
+  auto_select_cheapest: false
+
+  # Label format: PDF, PNG, or ZPL (thermal printer)
+  label_format: "PDF"
+
+  # Preferred carrier (optional): usps, ups, fedex
+  default_carrier: null

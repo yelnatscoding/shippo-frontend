@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Address Parser Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        textarea { width: 100%; height: 150px; }
+        .result { margin-top: 20px; padding: 10px; background: #f0f0f0; }
+        button { padding: 10px 20px; margin: 10px 0; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>Address Parser Test</h1>
+
+    <h3>Test Address:</h3>
+    <textarea id="testAddress">Gabriela Hernandez
+200 5th Avenue
+Spc 48
+CA 93203 Arvin
+United States</textarea>
+
+    <button onclick="testParse()">Parse Address</button>
+
+    <div class="result" id="result"></div>
+
+    <script src="app.js"></script>
+    <script>
+        function testParse() {
+            const text = document.getElementById('testAddress').value;
+            const parsed = ShippingApp.parseAddress(text);
+
+            document.getElementById('result').innerHTML = `
+                <h3>Parsed Result:</h3>
+                <p><strong>Name:</strong> ${parsed?.name || '(empty)'}</p>
+                <p><strong>Street:</strong> ${parsed?.street || '(empty)'}</p>
+                <p><strong>City:</strong> ${parsed?.city || '(empty)'}</p>
+                <p><strong>State:</strong> ${parsed?.state || '(empty)'}</p>
+                <p><strong>ZIP:</strong> ${parsed?.zip || '(empty)'}</p>
+                <hr>
+                <pre>${JSON.stringify(parsed, null, 2)}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>
