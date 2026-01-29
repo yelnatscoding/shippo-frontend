@@ -76,7 +76,7 @@ const ShippingApp = {
 
         // Auto-save form data on input
         const formInputs = [
-            'to-name', 'to-street', 'to-city', 'to-state', 'to-zip',
+            'to-name', 'to-street', 'to-street2', 'to-city', 'to-state', 'to-zip',
             'length', 'width', 'height', 'weight'
         ];
 
@@ -102,6 +102,7 @@ const ShippingApp = {
         if (parsed) {
             document.getElementById(`${prefix}-name`).value = parsed.name || '';
             document.getElementById(`${prefix}-street`).value = parsed.street || '';
+            document.getElementById(`${prefix}-street2`).value = parsed.street2 || '';
             document.getElementById(`${prefix}-city`).value = parsed.city || '';
             document.getElementById(`${prefix}-state`).value = parsed.state || '';
             document.getElementById(`${prefix}-zip`).value = parsed.zip || '';
@@ -132,6 +133,7 @@ const ShippingApp = {
         const parsed = {
             name: '',
             street: '',
+            street2: '',
             city: '',
             state: '',
             zip: ''
@@ -290,6 +292,7 @@ const ShippingApp = {
         const parsed = {
             name: '',
             street: '',
+            street2: '',
             city: '',
             state: '',
             zip: ''
@@ -390,6 +393,7 @@ const ShippingApp = {
             toAddress: {
                 name: document.getElementById('to-name').value,
                 street1: document.getElementById('to-street').value,
+                street2: document.getElementById('to-street2').value,
                 city: document.getElementById('to-city').value,
                 state: document.getElementById('to-state').value,
                 zip: document.getElementById('to-zip').value
@@ -416,6 +420,7 @@ const ShippingApp = {
             if (formData.toAddress) {
                 document.getElementById('to-name').value = formData.toAddress.name || '';
                 document.getElementById('to-street').value = formData.toAddress.street1 || '';
+                document.getElementById('to-street2').value = formData.toAddress.street2 || '';
                 document.getElementById('to-city').value = formData.toAddress.city || '';
                 document.getElementById('to-state').value = formData.toAddress.state || '';
                 document.getElementById('to-zip').value = formData.toAddress.zip || '';
@@ -439,6 +444,7 @@ const ShippingApp = {
             const toAddress = {
                 name: document.getElementById('to-name').value.trim(),
                 street1: document.getElementById('to-street').value.trim(),
+                street2: document.getElementById('to-street2').value.trim(),
                 city: document.getElementById('to-city').value.trim(),
                 state: document.getElementById('to-state').value.trim().toUpperCase(),
                 zip: document.getElementById('to-zip').value.trim(),
@@ -965,6 +971,7 @@ const ShippingApp = {
             const address = {
                 name: document.getElementById('val-name').value.trim(),
                 street1: document.getElementById('val-street').value.trim(),
+                street2: document.getElementById('val-street2').value.trim(),
                 city: document.getElementById('val-city').value.trim(),
                 state: document.getElementById('val-state').value.trim().toUpperCase(),
                 zip: document.getElementById('val-zip').value.trim(),
@@ -1177,6 +1184,7 @@ const ShippingApp = {
         if (label.to_address) {
             document.getElementById('to-name').value = label.to_address.name || '';
             document.getElementById('to-street').value = label.to_address.street1 || '';
+            document.getElementById('to-street2').value = label.to_address.street2 || '';
             document.getElementById('to-city').value = label.to_address.city || '';
             document.getElementById('to-state').value = label.to_address.state || '';
             document.getElementById('to-zip').value = label.to_address.zip || '';
