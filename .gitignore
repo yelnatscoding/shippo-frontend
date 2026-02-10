@@ -12,6 +12,9 @@ ENV/
 # Environment variables
 .env
 
+# User config (contains personal info)
+config.yaml
+
 # Labels and logs
 labels/*.pdf
 labels/*.png

@@ -1,4 +1,5 @@
 easypost==9.4.1
+shippo>=3.0.0
 shipengine==1.0.0
 requests==2.31.0
 pydantic==2.10.3

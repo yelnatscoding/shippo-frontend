@@ -2,15 +2,15 @@
 
 # Default sender address (saves typing for repeated shipments)
 default_sender:
-  name: "JunQ Trading Technology Inc."
-  street1: "2755 E Philadelphia St"
+  name: "Your Company Name"
+  street1: "123 Main St"
   street2: ""
-  city: "Ontario"
+  city: "Your City"
   state: "CA"
-  zip: "91761"
+  zip: "90001"
   country: "US"
-  phone: "+19178650776"
-  email: "gao@junqmarket.com"
+  phone: "+11234567890"
+  email: "you@example.com"
 
 # User preferences
 preferences:
