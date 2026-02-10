@@ -1,11 +1,8 @@
 easypost==9.4.1
-shippo>=3.0.0
-shipengine==1.0.0
 requests==2.31.0
 pydantic==2.10.3
 python-dotenv==0.15.0
 PyYAML==6.0.2
-dataclasses-json>=0.6.4
 google-auth==2.27.0
 google-api-python-client==2.116.0
 google-auth-oauthlib==1.2.0
