@@ -1,0 +1,41 @@
+discord:
+  bot_token_env: "DISCORD_BOT_TOKEN"
+
+calendar:
+  channel_id: ""
+  poll_interval_seconds: 60
+  accounts:
+    - email: "example@yourdomain.com"
+      imap_host: "imap.purelymail.com"
+      smtp_host: "smtp.purelymail.com"
+      imap_port: 993
+      smtp_port: 587
+      password_env: "EMAIL_PASS_1"
+
+shipping:
+  channel_id: ""
+  default_origin_zip: "91761"
+  default_origin_address:
+    name: "Sender Name"
+    street1: "123 Main St"
+    city: "Pomona"
+    state: "CA"
+    zip: "91761"
+    country: "US"
+  max_options_shown: 5
+
+drive:
+  channel_id: ""
+  poll_interval_seconds: 300
+  watched_folders: []
+
+ai_chat:
+  channel_id: ""
+  trigger: "mention"
+  context_sources:
+    - calendar
+    - drive
+    - shipping
+
+database:
+  url_env: "POSTGRES_URL"
