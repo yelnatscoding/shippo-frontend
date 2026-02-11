@@ -42,6 +42,11 @@
                     <i class="bi bi-clock-history"></i> Label History
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chat-content" type="button" role="tab">
+                    <i class="bi bi-robot"></i> AI Ship
+                </button>
+            </li>
         </ul>
 
         <!-- Tab Content -->
@@ -226,6 +231,48 @@
                                     <span class="visually-hidden">Loading...</span>
                                 </div>
                                 <p class="mt-2">Loading history...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Ship Chat Tab -->
+            <div class="tab-pane fade" id="chat-content" role="tabpanel">
+                <div class="row">
+                    <div class="col-lg-5">
+                        <div class="card chat-card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="bi bi-robot"></i> AI Shipping Assistant</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chat-messages" id="chat-messages">
+                                    <div class="chat-message bot-message">
+                                        <div class="message-icon"><i class="bi bi-robot"></i></div>
+                                        <div class="message-content">
+                                            <p>Hi! Tell me what you want to ship and I'll find the best rates.</p>
+                                            <p class="mb-0"><strong>Example:</strong><br>
+                                            <em>"Ship from 3006 NW 72nd Ave Miami FL 33122 to 2755 E Philadelphia St Ontario CA 91761, 43x34x34cm 30kg"</em></p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="chat-input-area">
+                                    <textarea class="form-control" id="chat-input" rows="2" placeholder="Describe your shipment..."></textarea>
+                                    <button class="btn btn-primary" id="chat-send-btn">
+                                        <i class="bi bi-send-fill"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-7">
+                        <!-- Parsed data confirmation -->
+                        <div id="chat-parsed-data" class="mb-3" style="display:none;"></div>
+                        <!-- Rates results from chat -->
+                        <div id="chat-rates-results">
+                            <div class="text-center text-muted py-5">
+                                <i class="bi bi-robot fs-1"></i>
+                                <p class="mt-3">Describe your shipment in the chat and I'll find rates for you</p>
                             </div>
                         </div>
                     </div>
