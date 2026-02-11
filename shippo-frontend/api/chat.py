@@ -23,7 +23,7 @@ class handler(BaseHTTPRequestHandler):
                 self._send_error(400, 'Message is required')
                 return
 
-            api_key = os.environ.get('GEMINI_API_KEY')
+            api_key = os.environ.get('GEMINI_API_KEY', '').strip()
             if not api_key:
                 self._send_error(500, 'GEMINI_API_KEY not configured')
                 return
