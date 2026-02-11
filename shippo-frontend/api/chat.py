@@ -36,9 +36,13 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             # Validate required fields
-            validation_errors = self._validate_parsed(parsed)
-            if validation_errors:
-                self._send_error(422, f'Missing fields: {", ".join(validation_errors)}. Please include both addresses and package dimensions.')
+            missing = self._validate_parsed(parsed)
+            if missing:
+                self._send_json(422, {
+                    'success': False,
+                    'error': 'missing_fields',
+                    'missing': missing
+                })
                 return
 
             self._send_json(200, {
@@ -124,24 +128,49 @@ User request: {message}"""
         return json.loads(text)
 
     def _validate_parsed(self, parsed):
-        """Validate parsed data has required fields"""
-        errors = []
-
-        to_addr = parsed.get('to_address', {})
-        if not to_addr.get('city') and not to_addr.get('zip'):
-            errors.append('to_address (need at least city or zip)')
+        """Validate parsed data has required fields. Returns dict of missing fields by section."""
+        missing = {}
 
         from_addr = parsed.get('from_address', {})
-        if not from_addr.get('city') and not from_addr.get('zip'):
-            errors.append('from_address (need at least city or zip)')
+        from_missing = []
+        if not from_addr.get('street1'):
+            from_missing.append('Street Address')
+        if not from_addr.get('city'):
+            from_missing.append('City')
+        if not from_addr.get('state'):
+            from_missing.append('State')
+        if not from_addr.get('zip'):
+            from_missing.append('ZIP Code')
+        if from_missing:
+            missing['from_address'] = from_missing
+
+        to_addr = parsed.get('to_address', {})
+        to_missing = []
+        if not to_addr.get('street1'):
+            to_missing.append('Street Address')
+        if not to_addr.get('city'):
+            to_missing.append('City')
+        if not to_addr.get('state'):
+            to_missing.append('State')
+        if not to_addr.get('zip'):
+            to_missing.append('ZIP Code')
+        if to_missing:
+            missing['to_address'] = to_missing
 
         parcel = parsed.get('parcel', {})
+        parcel_missing = []
+        if not parcel.get('length'):
+            parcel_missing.append('Length')
+        if not parcel.get('width'):
+            parcel_missing.append('Width')
+        if not parcel.get('height'):
+            parcel_missing.append('Height')
         if not parcel.get('weight'):
-            errors.append('weight')
-        if not parcel.get('length') or not parcel.get('width') or not parcel.get('height'):
-            errors.append('dimensions (length, width, height)')
+            parcel_missing.append('Weight')
+        if parcel_missing:
+            missing['parcel'] = parcel_missing
 
-        return errors
+        return missing
 
     def _send_json(self, status, data):
         """Send JSON response"""

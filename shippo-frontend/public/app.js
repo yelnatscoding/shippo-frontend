@@ -1254,9 +1254,40 @@ const ShippingApp = {
             }
         } catch (error) {
             document.getElementById(typingId)?.remove();
-            const errorMsg = error.response?.data?.error || error.message || 'Failed to process message';
-            this.addChatMessage('bot', `<span class="text-danger">${errorMsg}</span>`);
+            const respData = error.response?.data;
+
+            if (respData?.error === 'missing_fields' && respData?.missing) {
+                this.addChatMessage('bot', this.formatMissingFieldsMessage(respData.missing));
+            } else {
+                const errorMsg = respData?.error || error.message || 'Failed to process message';
+                this.addChatMessage('bot', `<span class="text-danger">${errorMsg}</span>`);
+            }
         }
+    },
+
+    formatMissingFieldsMessage(missing) {
+        const sectionLabels = {
+            from_address: 'From Address',
+            to_address: 'To Address',
+            parcel: 'Package Details'
+        };
+
+        let html = `<strong>I'm missing some info from your message:</strong>`;
+        html += `<div class="missing-fields mt-2">`;
+
+        for (const [section, fields] of Object.entries(missing)) {
+            const label = sectionLabels[section] || section;
+            html += `<div class="mb-2"><strong>${label}</strong>`;
+            html += `<ul class="mb-0 ps-3">`;
+            fields.forEach(f => {
+                html += `<li>${f}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        html += `</div>`;
+        html += `<p class="mt-2 mb-0 text-muted"><small><strong>Example:</strong> "Ship from 3006 NW 72nd Ave, Miami FL 33122 to 2755 E Philadelphia St, Ontario CA 91761, 43x34x34cm 30kg"</small></p>`;
+        return html;
     },
 
     addChatMessage(sender, content) {
