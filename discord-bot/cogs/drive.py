@@ -25,6 +25,13 @@ class DriveCog(commands.Cog):
     async def cog_load(self):
         """Start the Drive polling loop"""
         if self.watcher and self.config.get("watched_folders"):
+            # Seed cache from database to avoid duplicate notifications on restart
+            try:
+                db_files = self.bot.db.get_all_drive_files(limit=10000)
+                self.watcher.seed_cache_from_db(db_files)
+            except Exception as e:
+                logger.warning(f"Could not seed drive cache from database: {e}")
+
             interval = self.config.get("poll_interval_seconds", 300)
             self.poll_drive.change_interval(seconds=interval)
             self.poll_drive.start()

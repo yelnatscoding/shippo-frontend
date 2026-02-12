@@ -43,8 +43,8 @@ class EmailClient:
                 client.select_folder(folder)
 
                 # Search for unseen emails or emails after a UID
-                if since_uid:
-                    messages = client.search([f"UID", f"{since_uid}:*"])
+                if since_uid and since_uid > 0:
+                    messages = client.search(["UID", f"{since_uid + 1}:*"])
                 else:
                     messages = client.search(["UNSEEN"])
 

@@ -130,6 +130,17 @@ class CalendarCog(commands.Cog):
 
     async def _post_event(self, channel, event: Dict, email_dict: Dict):
         """Post event to Discord and create scheduled event"""
+        # Check if this event was already posted (by event_uid)
+        event_uid = event.get("uid")
+        if event_uid:
+            existing = self.bot.db.get_event_by_uid(event_uid)
+            if existing and existing.get("discord_message_id"):
+                # Retry scheduled event creation if it failed previously
+                if not existing.get("discord_event_id"):
+                    await self._retry_scheduled_event(channel, event, existing["id"])
+                logger.info(f"Skipping already-posted event: {event.get('title')} (uid: {event_uid})")
+                return
+
         # Save to database
         event_id = self.bot.db.save_event(event)
 
@@ -202,6 +213,33 @@ class CalendarCog(commands.Cog):
         )
 
         logger.info(f"Posted calendar event: {event.get('title')}")
+
+    async def _retry_scheduled_event(self, channel, event: Dict, event_id: int):
+        """Retry creating a Discord scheduled event for an already-posted event"""
+        start_time = event.get("start_time")
+        if not start_time or not isinstance(start_time, datetime):
+            return
+
+        try:
+            guild = channel.guild
+            end_time = event.get("end_time")
+            if not end_time or not isinstance(end_time, datetime):
+                end_time = start_time + timedelta(hours=1)
+
+            location_str = event.get("meeting_link") or event.get("location") or "TBD"
+
+            scheduled_event = await guild.create_scheduled_event(
+                name=event.get("title", "Event")[:100],
+                start_time=start_time,
+                end_time=end_time,
+                location=location_str[:100],
+                entity_type=discord.EntityType.external,
+                privacy_level=discord.PrivacyLevel.guild_only
+            )
+            self.bot.db.update_event_discord_ids(event_id, str(scheduled_event.id), "")
+            logger.info(f"Retried scheduled event creation: {scheduled_event.id}")
+        except Exception as e:
+            logger.warning(f"Retry scheduled event failed: {e}")
 
     def _parse_datetime(self, date_str: Optional[str], time_str: Optional[str]) -> Optional[datetime]:
         """Parse date and time strings into datetime"""

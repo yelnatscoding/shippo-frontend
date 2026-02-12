@@ -127,6 +127,98 @@ Return ONLY the JSON object, no other text."""
         logger.info(f"Fallback parser result: {result}")
         return result
 
+    async def parse_shipping_info(self, message: str, existing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Parse shipping info from natural text. Merges with existing data if provided.
+        Returns dict with extracted fields and list of missing required fields.
+        """
+        existing_context = ""
+        if existing:
+            filled = {k: v for k, v in existing.items() if v is not None}
+            if filled:
+                existing_context = f"\n\nAlready collected info (keep these unless user is correcting them):\n{json.dumps(filled, indent=2)}"
+
+        prompt = f"""Extract shipping information from this message. Return JSON only, no markdown.
+
+This is for a shipping label. There is a DESTINATION (to) address and an ORIGIN (from) address.
+The user's default origin is already pre-filled, so most messages describe the DESTINATION.
+
+Message: "{message}"{existing_context}
+
+Return this exact JSON structure (use null for values not mentioned in the message):
+{{
+    "to_name": "recipient/destination name or null",
+    "to_street": "destination street address or null",
+    "to_city": "destination city or null",
+    "to_state": "2-letter state code or null",
+    "to_zip": "5-digit ZIP or null",
+    "to_phone": "10-digit phone number (digits only) or null",
+    "from_name": "sender/origin name or null (only if user explicitly provides a FROM address)",
+    "from_street": "origin street address or null",
+    "from_city": "origin city or null",
+    "from_state": "2-letter state code or null",
+    "from_zip": "5-digit ZIP or null",
+    "from_phone": "origin phone or null",
+    "weight": number in pounds or null,
+    "length": number in inches or null,
+    "width": number in inches or null,
+    "height": number in inches or null
+}}
+
+CRITICAL rules for from vs to:
+- If the user says "from [address]" or "ship from [address]", that is the ORIGIN — put it in from_* fields, NOT to_* fields
+- If the user says "to [address]" or "ship to [address]", that is the DESTINATION — put it in to_* fields
+- If the user gives an address with NO "from"/"to" keyword, assume it's the DESTINATION (to_* fields)
+- The from_* fields should ONLY be filled if the user explicitly says "from"
+- A single message can contain BOTH a from and to address (e.g. "from 123 Main St LA to 456 Oak Ave Austin")
+
+Other rules:
+- Phone numbers: strip formatting, return 10 digits only
+- State: always return 2-letter abbreviation (e.g. "CA", "TX")
+- ZIP: always return 5 digits
+- Weight: convert ounces to pounds if needed (16oz = 1lb)
+- Dimensions: if user says "12x8x4" that's length=12, width=8, height=4
+- If user mentions a city/state but no ZIP, still extract city and state
+- Return ONLY the JSON object, no other text."""
+
+        try:
+            response = await self.model.generate_content_async(prompt)
+            text = response.text.strip()
+
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+
+            parsed = json.loads(text.strip())
+
+            # Merge with existing data - new non-null values override
+            merged = dict(existing) if existing else {}
+            for key, value in parsed.items():
+                if value is not None:
+                    merged[key] = value
+
+            # Determine missing required fields
+            required = ["to_name", "to_street", "to_city", "to_state", "to_zip", "to_phone", "weight"]
+            missing = [f for f in required if not merged.get(f)]
+
+            # Dimensions default to 12x12x12 if not provided, so not strictly required
+            # but note it for the user
+            has_dimensions = all(merged.get(d) for d in ["length", "width", "height"])
+
+            return {
+                "collected": merged,
+                "missing": missing,
+                "has_dimensions": has_dimensions,
+            }
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse shipping JSON from Gemini: {e}")
+            return {"collected": existing or {}, "missing": ["all"], "has_dimensions": False}
+        except Exception as e:
+            logger.error(f"Failed to parse shipping info: {e}")
+            return {"collected": existing or {}, "missing": ["all"], "has_dimensions": False}
+
     async def parse_calendar_text(self, email_body: str) -> Optional[Dict[str, Any]]:
         """
         Extract calendar event details from plain text email.

@@ -78,14 +78,25 @@ class Database:
                 return cur.fetchone()[0]
 
     def update_event_discord_ids(self, event_id: int, discord_event_id: str, discord_message_id: str):
-        """Update event with Discord IDs"""
+        """Update event with Discord IDs (only updates non-empty values)"""
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE calendar_events
-                    SET discord_event_id = %s, discord_message_id = %s
+                    SET discord_event_id = CASE WHEN %s != '' THEN %s ELSE discord_event_id END,
+                        discord_message_id = CASE WHEN %s != '' THEN %s ELSE discord_message_id END
                     WHERE id = %s
-                """, (discord_event_id, discord_message_id, event_id))
+                """, (discord_event_id, discord_event_id, discord_message_id, discord_message_id, event_id))
+
+    def get_event_by_uid(self, event_uid: str) -> Optional[Dict]:
+        """Get event by its unique calendar UID"""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM calendar_events WHERE event_uid = %s
+                """, (event_uid,))
+                row = cur.fetchone()
+                return dict(row) if row else None
 
     def get_event_by_message_id(self, message_id: str) -> Optional[Dict]:
         """Get event by Discord message ID"""
