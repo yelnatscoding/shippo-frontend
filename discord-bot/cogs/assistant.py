@@ -27,20 +27,31 @@ class AssistantCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Respond to @mentions in AI chat channel"""
+        # Ignore all bot messages (including our own)
         if message.author.bot:
             return
 
-        # Check if in configured channel (if set)
-        channel_id = self.config.get("channel_id")
-        if channel_id and str(message.channel.id) != str(channel_id):
-            # Also allow in any channel if bot is mentioned
-            if self.bot.user not in message.mentions:
+        # Ignore if this is a reply to a bot message (prevents loops)
+        if message.reference and message.reference.resolved:
+            if hasattr(message.reference.resolved, 'author') and message.reference.resolved.author.bot:
                 return
 
-        # Check for mention trigger
+        # Check if in configured channel
+        channel_id = self.config.get("channel_id")
+        in_ai_channel = channel_id and str(message.channel.id) == str(channel_id)
+
+        # Must be mentioned to trigger
         trigger = self.config.get("trigger", "mention")
-        if trigger == "mention" and self.bot.user not in message.mentions:
+        is_mentioned = self.bot.user in message.mentions
+
+        # Only respond if: in AI channel AND mentioned, OR mentioned anywhere
+        if trigger == "mention" and not is_mentioned:
             return
+
+        if not in_ai_channel and not is_mentioned:
+            return
+
+        logger.info(f"AI chat triggered by {message.author} in channel {message.channel.id}")
 
         if not self.gemini:
             await message.reply("AI service not configured.")

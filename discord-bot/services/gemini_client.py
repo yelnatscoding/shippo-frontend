@@ -18,7 +18,7 @@ class GeminiClient:
             raise ValueError("GEMINI_API_KEY not configured")
 
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.model = genai.GenerativeModel("gemini-2.0-flash")
         logger.info("Gemini client initialized")
 
     async def parse_shipping_request(self, message: str) -> Dict[str, Any]:
@@ -64,7 +64,68 @@ Return ONLY the JSON object, no other text."""
             return {"error": "Failed to parse response", "missing_fields": ["all"]}
         except Exception as e:
             logger.error(f"Failed to parse shipping request: {e}")
-            return {"error": str(e), "missing_fields": ["all"]}
+            # Fallback to regex parsing
+            return self._fallback_parse_shipping(message)
+
+    def _fallback_parse_shipping(self, message: str) -> Dict[str, Any]:
+        """Fallback regex-based shipping parser when AI is unavailable."""
+        import re
+
+        result = {
+            "origin_zip": None,
+            "destination_zip": None,
+            "destination_city": None,
+            "destination_state": None,
+            "weight": None,
+            "length": None,
+            "width": None,
+            "height": None,
+            "missing_fields": []
+        }
+
+        message_lower = message.lower()
+
+        # Extract ZIP codes (5 digits)
+        zips = re.findall(r'\b(\d{5})\b', message)
+        if len(zips) >= 2:
+            result["origin_zip"] = zips[0]
+            result["destination_zip"] = zips[1]
+        elif len(zips) == 1:
+            result["destination_zip"] = zips[0]
+
+        # Extract weight (look for patterns like "5lbs", "5 lbs", "5 pounds", "5lb")
+        weight_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?|oz|ounces?)', message_lower)
+        if weight_match:
+            weight = float(weight_match.group(1))
+            if 'oz' in message_lower or 'ounce' in message_lower:
+                weight = weight / 16  # Convert oz to lbs
+            result["weight"] = weight
+
+        # Extract dimensions (patterns like "12x8x2", "12 x 8 x 2", "12x8x2in")
+        dim_match = re.search(r'(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)', message)
+        if dim_match:
+            result["length"] = float(dim_match.group(1))
+            result["width"] = float(dim_match.group(2))
+            result["height"] = float(dim_match.group(3))
+
+        # Extract state abbreviations
+        states = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+                  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+                  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+                  'VA','WA','WV','WI','WY']
+        state_pattern = r'\b(' + '|'.join(states) + r')\b'
+        state_matches = re.findall(state_pattern, message.upper())
+        if state_matches:
+            result["destination_state"] = state_matches[-1]  # Use last state found (usually destination)
+
+        # Build missing fields list
+        if not result["destination_zip"] and not (result["destination_city"] and result["destination_state"]):
+            result["missing_fields"].append("destination")
+        if not result["weight"]:
+            result["missing_fields"].append("weight")
+
+        logger.info(f"Fallback parser result: {result}")
+        return result
 
     async def parse_calendar_text(self, email_body: str) -> Optional[Dict[str, Any]]:
         """
