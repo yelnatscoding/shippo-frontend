@@ -37,11 +37,13 @@ class DriveWatcher:
 
     @staticmethod
     def _parse_modified_time(mod_time) -> Optional[datetime]:
-        """Normalize modifiedTime to datetime for reliable comparison"""
+        """Normalize modifiedTime to naive UTC datetime for reliable comparison"""
         if mod_time is None:
             return None
         if isinstance(mod_time, datetime):
-            return mod_time.replace(microsecond=0)
+            # Strip timezone info for consistent comparison
+            # (DB returns timezone-aware, API strings parse to naive — both are UTC)
+            return mod_time.replace(tzinfo=None, microsecond=0)
         if isinstance(mod_time, str):
             for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
                 try:
@@ -64,7 +66,13 @@ class DriveWatcher:
                     "folder_id": f.get("folder_id"),
                     "folder_name": f.get("folder_name"),
                 }
-        logger.info(f"Seeded drive cache with {len(db_files)} files from database")
+                # Mark folder as initialized so first poll detects real changes
+                # instead of silently suppressing everything
+                folder_id = f.get("folder_id")
+                if folder_id:
+                    self.initialized_folders.add(folder_id)
+        logger.info(f"Seeded drive cache with {len(db_files)} files from database "
+                     f"({len(self.initialized_folders)} folders marked initialized)")
 
     def get_folder_files(self, folder_id: str) -> List[Dict[str, Any]]:
         """Get all files in a folder"""
@@ -151,6 +159,9 @@ class DriveWatcher:
 
         if first_run:
             logger.info(f"Initial scan for '{folder_name}': cached {len(filtered_files)} files")
+            # Return all current files so caller can persist them to DB
+            # This prevents a permanent silence loop on repeated restarts
+            changes["_initial_files"] = filtered_files
 
         return changes
 

@@ -66,6 +66,16 @@ class DriveCog(commands.Cog):
                     file_types=folder_config.get("file_types")
                 )
 
+                # Save initial files to DB on first scan so restarts have a baseline
+                initial_files = changes.pop("_initial_files", None)
+                if initial_files:
+                    for file in initial_files:
+                        try:
+                            self.bot.db.save_drive_file(file)
+                        except Exception as e:
+                            logger.warning(f"Could not save initial drive file to db: {e}")
+                    logger.info(f"Saved {len(initial_files)} initial files to DB for {folder_config.get('name')}")
+
                 # Check if there are any changes
                 if not any(changes.values()):
                     continue
