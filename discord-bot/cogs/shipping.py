@@ -500,8 +500,19 @@ class ShippingCog(commands.Cog):
 
             collected = result["collected"]
 
-            # Strip hallucinated from_* fields unless user explicitly said "from"
-            if "from" not in content_lower:
+            # When user says "from", protect existing to_* fields and recover
+            # misidentified from data — Gemini often puts from-address data into to_* fields
+            if "from" in content_lower:
+                existing = session.get("collected", {})
+                for key in list(collected.keys()):
+                    if key.startswith("to_") and key in existing and existing[key]:
+                        # If Gemini changed a to_* field, it's likely from-address data
+                        from_key = key.replace("to_", "from_", 1)
+                        if collected[key] != existing[key] and not collected.get(from_key):
+                            collected[from_key] = collected[key]
+                        collected[key] = existing[key]
+            else:
+                # Strip hallucinated from_* fields when user didn't say "from"
                 for key in list(collected.keys()):
                     if key.startswith("from_"):
                         del collected[key]
