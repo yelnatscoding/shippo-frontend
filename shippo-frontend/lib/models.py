@@ -38,6 +38,7 @@ class Rate(BaseModel):
     duration_terms: Optional[str] = None
     shipment_id: Optional[str] = None  # Needed for EasyPost to purchase labels
     signature_confirmation: Optional[str] = None  # STANDARD, ADULT, CERTIFIED, INDIRECT
+    package_type: Optional[str] = None  # e.g. "package", "flat_rate_envelope", "small_flat_rate_box"
 
     def __str__(self) -> str:
         days_str = f"{self.estimated_days} days" if self.estimated_days else self.duration_terms or "N/A"

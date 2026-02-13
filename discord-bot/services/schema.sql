@@ -63,8 +63,21 @@ CREATE TABLE IF NOT EXISTS drive_files (
     last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Package presets table
+CREATE TABLE IF NOT EXISTS package_presets (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    length DECIMAL(6, 2) NOT NULL,
+    width DECIMAL(6, 2) NOT NULL,
+    height DECIMAL(6, 2) NOT NULL,
+    weight DECIMAL(6, 2) NOT NULL,
+    discord_user_id VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_time);
 CREATE INDEX IF NOT EXISTS idx_shipping_labels_user ON shipping_labels(discord_user_id);
 CREATE INDEX IF NOT EXISTS idx_shipping_labels_status ON shipping_labels(status);
 CREATE INDEX IF NOT EXISTS idx_drive_files_folder ON drive_files(folder_id);
+CREATE INDEX IF NOT EXISTS idx_package_presets_user ON package_presets(discord_user_id);

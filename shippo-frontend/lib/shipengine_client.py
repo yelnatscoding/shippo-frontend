@@ -2,6 +2,7 @@
 
 import os
 import requests
+from datetime import datetime, timezone
 from typing import List, Optional
 import logging
 from models import Address, Parcel, Rate, ShippingLabel, ValidationResult
@@ -207,6 +208,7 @@ class ShipEngineClient:
                         duration_terms=None,
                         shipment_id=None,
                         signature_confirmation=signature_confirmation,
+                        package_type=rate_data.get("package_type"),
                     )
                     rates.append(rate)
 
@@ -221,27 +223,36 @@ class ShipEngineClient:
             raise Exception(f"ShipEngine error: {str(e)}")
 
     def purchase_label(self, rate_id: str, label_format: str = "pdf",
-                       signature_confirmation: Optional[str] = None) -> ShippingLabel:
+                       label_layout: str = "4x6",
+                       signature_confirmation: Optional[str] = None,
+                       insured_value: Optional[float] = None) -> ShippingLabel:
         """
         Purchase shipping label using a rate ID
 
         Args:
             rate_id: Rate ID from get_rates()
             label_format: Label format (pdf, png, zpl) - default: pdf
+            label_layout: Label size (4x6 or letter) - default: 4x6
             signature_confirmation: Signature type for tracking (already embedded in rate)
+            insured_value: Optional declared value for insurance in USD
 
         Returns:
             ShippingLabel with tracking number and label URL
         """
         sig_info = f" (signature: {signature_confirmation})" if signature_confirmation else ""
-        logger.info(f"Purchasing label with rate ID: {rate_id}{sig_info}")
+        ins_info = f" (insured: ${insured_value:.2f})" if insured_value else ""
+        logger.info(f"Purchasing label with rate ID: {rate_id}{sig_info}{ins_info}")
 
         # Prepare label purchase request
         # ShipEngine API: POST /v1/labels/rates/{rate_id}
         payload = {
             "label_format": label_format.lower(),
-            "label_layout": "4x6",  # Standard shipping label size
+            "label_layout": label_layout,
         }
+
+        if insured_value and insured_value > 0:
+            payload["insurance_provider"] = "carrier"
+            payload["packages"] = [{"insured_value": {"amount": insured_value, "currency": "usd"}}]
 
         try:
             # Make API request to purchase label
@@ -372,6 +383,82 @@ class ShipEngineClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"ShipEngine address validation error: {str(e)}")
             raise Exception(f"ShipEngine address validation error: {str(e)}")
+        except Exception as e:
+            logger.error(f"ShipEngine error: {str(e)}")
+            raise Exception(f"ShipEngine error: {str(e)}")
+
+    def schedule_pickup(self, label_ids: List[str], contact_name: str, contact_phone: str,
+                        pickup_date: str, start_time: str = "08:00", end_time: str = "17:00",
+                        contact_email: str = None, notes: str = None) -> dict:
+        """
+        Schedule a carrier pickup for one or more labels.
+
+        Args:
+            label_ids: List of ShipEngine label IDs (e.g. ["se-123456"])
+            contact_name: Contact person name for the pickup
+            contact_phone: Contact phone number
+            pickup_date: Pickup date in YYYY-MM-DD format
+            start_time: Pickup window start time in HH:MM format (default "08:00")
+            end_time: Pickup window end time in HH:MM format (default "17:00")
+            contact_email: Optional contact email
+            notes: Optional pickup instructions
+
+        Returns:
+            Dict with pickup confirmation details:
+            {
+                "pickup_id": str,
+                "status": str,
+                "pickup_window": {"start_at": str, "end_at": str},
+                "confirmation_number": str,
+            }
+        """
+        logger.info(f"Scheduling pickup for {len(label_ids)} label(s) on {pickup_date}")
+
+        # Build ISO datetime strings from date and time components
+        start_at = f"{pickup_date}T{start_time}:00Z"
+        end_at = f"{pickup_date}T{end_time}:00Z"
+
+        payload = {
+            "label_ids": label_ids,
+            "contact_name": contact_name,
+            "contact_phone": contact_phone,
+            "pickup_window": {
+                "start_at": start_at,
+                "end_at": end_at,
+            },
+        }
+
+        if contact_email:
+            payload["contact_email"] = contact_email
+        if notes:
+            payload["pickup_notes"] = notes
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/pickups",
+                json=payload,
+                headers=self.headers,
+                timeout=30
+            )
+
+            if response.status_code not in [200, 201]:
+                raise Exception(f"ShipEngine API returned status {response.status_code}: {response.text}")
+
+            data = response.json()
+
+            result = {
+                "pickup_id": data.get("pickup_id", ""),
+                "status": data.get("status", "unknown"),
+                "pickup_window": data.get("pickup_window", {"start_at": start_at, "end_at": end_at}),
+                "confirmation_number": data.get("confirmation_number", ""),
+            }
+
+            logger.info(f"Pickup scheduled: {result['pickup_id']}")
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"ShipEngine pickup scheduling error: {str(e)}")
+            raise Exception(f"ShipEngine pickup scheduling error: {str(e)}")
         except Exception as e:
             logger.error(f"ShipEngine error: {str(e)}")
             raise Exception(f"ShipEngine error: {str(e)}")

@@ -215,6 +215,19 @@ class Database:
                 """, (limit,))
                 return [dict(row) for row in cur.fetchall()]
 
+    def get_todays_active_labels(self) -> List[Dict]:
+        """Get today's active (non-voided) labels that have a provider_label_id"""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM shipping_labels
+                    WHERE status = 'active'
+                      AND provider_label_id IS NOT NULL
+                      AND created_at::date = CURRENT_DATE
+                    ORDER BY created_at DESC
+                """)
+                return [dict(row) for row in cur.fetchall()]
+
     def void_label(self, tracking_number: str) -> bool:
         """Mark label as voided"""
         with self.get_connection() as conn:
@@ -227,6 +240,40 @@ class Database:
                 """, (tracking_number,))
                 result = cur.fetchone()
                 return result is not None
+
+    # Package preset operations
+    def save_preset(self, name: str, length: float, width: float, height: float, weight: float, user_id: str = None) -> int:
+        """Save a package preset, return ID"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO package_presets (name, length, width, height, weight, discord_user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (name, length, width, height, weight, user_id))
+                return cur.fetchone()[0]
+
+    def get_presets(self, user_id: str = None) -> List[Dict]:
+        """Get package presets (user's + global)"""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM package_presets
+                    WHERE discord_user_id = %s OR discord_user_id IS NULL
+                    ORDER BY name
+                """, (user_id,))
+                return [dict(row) for row in cur.fetchall()]
+
+    def delete_preset(self, preset_id: int, user_id: str) -> bool:
+        """Delete a preset (only owner can delete)"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM package_presets
+                    WHERE id = %s AND (discord_user_id = %s OR discord_user_id IS NULL)
+                    RETURNING id
+                """, (preset_id, user_id))
+                return cur.fetchone() is not None
 
     # Drive operations
     def save_drive_file(self, file: Dict[str, Any]):

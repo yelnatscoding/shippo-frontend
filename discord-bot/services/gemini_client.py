@@ -148,11 +148,13 @@ Message: "{message}"{existing_context}
 Return this exact JSON structure (use null for values not mentioned in the message):
 {{
     "to_name": "recipient/destination name or null",
-    "to_street": "destination street address or null",
+    "to_street": "destination street address (main street line only, no apt/suite/unit) or null",
+    "to_street2": "apartment, suite, unit, floor number or null (e.g. 'Apt 4B', 'Suite 200', 'Unit 3')",
     "to_city": "destination city or null",
     "to_state": "2-letter state code or null",
     "to_zip": "5-digit ZIP or null",
     "to_phone": "10-digit phone number (digits only) or null",
+    "to_email": "recipient email address or null",
     "from_name": "sender/origin name or null (only if user explicitly provides a FROM address)",
     "from_street": "origin street address or null",
     "from_city": "origin city or null",
@@ -166,19 +168,22 @@ Return this exact JSON structure (use null for values not mentioned in the messa
 }}
 
 CRITICAL rules for from vs to:
-- If the user says "from [address]" or "ship from [address]", that is the ORIGIN — put it in from_* fields, NOT to_* fields
-- If the user says "to [address]" or "ship to [address]", that is the DESTINATION — put it in to_* fields
-- If the user gives an address with NO "from"/"to" keyword, assume it's the DESTINATION (to_* fields)
-- The from_* fields should ONLY be filled if the user explicitly says "from"
-- A single message can contain BOTH a from and to address (e.g. "from 123 Main St LA to 456 Oak Ave Austin")
+- The origin (from) address is ALREADY PRE-FILLED from config. Do NOT guess or invent a from address.
+- ASSUME ALL addresses are the DESTINATION (to_*) unless the user EXPLICITLY writes "from" or "ship from"
+- If the user gives an address with NO "from" keyword, it is ALWAYS the DESTINATION — put it in to_* fields
+- NEVER fill from_* fields unless the user literally writes "from [address]" or "ship from [address]"
+- Set ALL from_* fields to null unless the user explicitly provides an origin address
+- A pasted address block (name, street, city, state, zip) with no "from" keyword = DESTINATION
 
 Other rules:
 - Phone numbers: strip formatting, return 10 digits only
+- Email: extract if present (e.g. "email john@example.com")
 - State: always return 2-letter abbreviation (e.g. "CA", "TX")
 - ZIP: always return 5 digits
 - Weight: convert ounces to pounds if needed (16oz = 1lb)
 - Dimensions: if user says "12x8x4" that's length=12, width=8, height=4
 - If user mentions a city/state but no ZIP, still extract city and state
+- Street2: separate apt/suite/unit/floor from main street. e.g. "123 Main St Apt 4B" → to_street="123 Main St", to_street2="Apt 4B"
 - Return ONLY the JSON object, no other text."""
 
         try:
