@@ -460,7 +460,7 @@ class ShippingCog(commands.Cog):
         # Start new session
         if content_lower in ["ship", "shipping", "new shipment", "create label", "new label"]:
             default_origin = self.config.get("default_origin_address", {})
-            system_context = self.gemini._build_shipping_system_context(default_origin) if self.gemini else ""
+            system_context = self.gemini.build_shipping_system_context(default_origin) if self.gemini else ""
 
             self.sessions[user_id] = {
                 "step": "awaiting_info",
@@ -507,7 +507,8 @@ class ShippingCog(commands.Cog):
                 )
 
             if result.get("error"):
-                await message.reply(f"\u274c AI error: {result['error']}. Please try again.")
+                logger.error(f"Gemini function calling error: {result['error']}")
+                await message.reply("\u274c AI service encountered an error. Please try again.")
                 return
 
             function_calls = result["function_calls"]
@@ -526,10 +527,9 @@ class ShippingCog(commands.Cog):
                     question = fc["args"].get("question", "Could you clarify?")
                     await message.reply(f"\U0001f914 {question}")
                     # Add function response to history
-                    if function_calls:
-                        session["messages"].append(
-                            self.gemini.build_function_responses(function_calls)
-                        )
+                    session["messages"].append(
+                        self.gemini.build_function_responses(function_calls)
+                    )
                     return
 
             # Process function calls to update session state
@@ -1091,7 +1091,7 @@ class ShippingCog(commands.Cog):
             return
 
         default_origin = self.config.get("default_origin_address", {})
-        system_context = self.gemini._build_shipping_system_context(default_origin) if self.gemini else ""
+        system_context = self.gemini.build_shipping_system_context(default_origin) if self.gemini else ""
 
         self.sessions[interaction.user.id] = {
             "step": "awaiting_info",

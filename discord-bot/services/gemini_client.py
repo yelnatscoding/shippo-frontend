@@ -112,7 +112,7 @@ class GeminiClient:
         },
     ]
 
-    def _build_shipping_system_context(self, default_origin: Dict[str, str]) -> str:
+    def build_shipping_system_context(self, default_origin: Dict[str, str]) -> str:
         """Build system context for shipping conversation."""
         origin_parts = [
             default_origin.get("name", "Sender"),
