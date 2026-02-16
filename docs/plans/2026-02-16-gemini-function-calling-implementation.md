@@ -1,10 +1,28 @@
 # Gemini Function Calling Intelligence Overhaul — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+>
+> **Design doc:** `docs/plans/2026-02-16-gemini-function-calling-design.md`
 
 **Goal:** Replace the Discord bot's prompt-based JSON extraction with Gemini Function Calling + conversation history to fix from/to address confusion and enable natural multi-turn corrections.
 
-**Architecture:** Migrate from deprecated `google-generativeai` SDK to new `google-genai` SDK. Define shipping tools as Python function declarations. Send full conversation history to Gemini on each turn. Gemini returns structured function calls instead of freeform JSON. Session state updated from function call args.
+## Why This Change Is Needed
+
+The Discord shipping bot's "brains" (`discord-bot/services/gemini_client.py` → `parse_shipping_info()`) currently send a single prompt to Gemini asking it to return raw JSON with `to_*` and `from_*` fields. This is broken in several ways:
+
+1. **From/to address confusion:** Gemini frequently puts from-address data into `to_*` fields despite extensive prompt instructions. A code-level hack (`shipping.py:503-518`) checks if `"from" in content_lower` and tries to recover, but this heuristic breaks on phrases like "I'm from Texas" and fails when the user provides a to-address first then adds a from-address later.
+
+2. **No conversation memory:** Each message is parsed independently — Gemini only sees the current message + a JSON dump of previously-collected fields. It has no context of what the user said in prior turns, making corrections ("actually change the zip") and multi-step input unreliable.
+
+3. **JSON parsing fragility:** Gemini sometimes returns malformed JSON, markdown-wrapped JSON, or extra text, causing `json.loads()` to fail silently and drop all extracted data.
+
+4. **No way to handle ambiguity:** If input is unclear, the bot has no mechanism to ask for clarification — it just guesses and often guesses wrong.
+
+**Why function calling solves this:** Instead of asking Gemini to output freeform JSON (which it does unreliably), we define structured *tools* — `set_to_address()`, `set_from_address()`, `set_package()`, etc. Gemini decides *which function to call* based on the full conversation context. The from/to distinction becomes an architectural guarantee (Gemini calls the correct function) rather than a prompt-engineering hope. Conversation history gives Gemini context for corrections and multi-step input.
+
+## Architecture
+
+Migrate from deprecated `google-generativeai` SDK to new `google-genai` SDK. Define shipping tools as Python function declarations. Send full conversation history to Gemini on each turn. Gemini returns structured function calls instead of freeform JSON. Session state updated from function call args.
 
 **Tech Stack:** `google-genai` SDK, `google.genai.types` for tool/config definitions, Gemini 2.0 Flash model
 
