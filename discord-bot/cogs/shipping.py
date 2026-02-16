@@ -777,9 +777,10 @@ class ShippingCog(commands.Cog):
         to_addr = session["to_addr"]
         parcel = session["parcel"]
 
-        def is_fedex_one_rate(rate: Rate) -> bool:
-            """FedEx One Rate requires FedEx-branded packaging, filter these out"""
-            return "one rate" in (rate.servicelevel_name or "").lower()
+        def should_exclude_rate(rate: Rate) -> bool:
+            """Filter out rates that require special packaging or restricted contents"""
+            name = (rate.servicelevel_name or "").lower()
+            return "one rate" in name or "media mail" in name
 
         # Fetch rates from all providers in parallel (base + signature)
         all_base_rates = []
@@ -808,8 +809,8 @@ class ShippingCog(commands.Cog):
                     errors.append(f"{provider_name} ({rate_type}): {e}")
 
         # Filter out FedEx One Rate (requires FedEx-branded packaging)
-        all_base_rates = [r for r in all_base_rates if not is_fedex_one_rate(r)]
-        all_sig_rates = [r for r in all_sig_rates if not is_fedex_one_rate(r)]
+        all_base_rates = [r for r in all_base_rates if not should_exclude_rate(r)]
+        all_sig_rates = [r for r in all_sig_rates if not should_exclude_rate(r)]
 
         def matches_carrier(rate: Rate, carrier: str) -> bool:
             return carrier in rate.provider.lower()
