@@ -778,7 +778,7 @@ class ShippingCog(commands.Cog):
         parcel = session["parcel"]
 
         def should_exclude_rate(rate: Rate) -> bool:
-            """Filter out rates that require special packaging or restricted contents"""
+            """Filter out rates requiring special packaging or restricted contents"""
             name = (rate.servicelevel_name or "").lower()
             return "one rate" in name or "media mail" in name
 
