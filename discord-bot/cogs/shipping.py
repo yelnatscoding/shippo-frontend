@@ -101,52 +101,6 @@ class ShipmentConfirmView(ui.View):
 
 
 
-class PackageTypeView(ui.View):
-    """Ask user if shipping an envelope or a box"""
-
-    def __init__(self, cog, user_id: int):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.user_id = user_id
-
-    @ui.button(label="Envelope", style=discord.ButtonStyle.primary, emoji="\u2709\ufe0f")
-    async def envelope_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        session = self.cog.sessions.get(self.user_id)
-        if session:
-            session["package_type"] = "envelope"
-
-        await interaction.response.edit_message(view=None)
-        await self.cog._show_delivery_options(interaction)
-
-    @ui.button(label="Box / Package", style=discord.ButtonStyle.primary, emoji="\U0001f4e6")
-    async def box_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        session = self.cog.sessions.get(self.user_id)
-        if session:
-            session["package_type"] = "box"
-
-        await interaction.response.edit_message(view=None)
-        await self.cog._show_delivery_options(interaction)
-
-    @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        if self.user_id in self.cog.sessions:
-            del self.cog.sessions[self.user_id]
-        await interaction.response.edit_message(content="Shipment cancelled.", embed=None, view=None)
-        self.stop()
-
-
 class DeliveryOptionsView(ui.View):
     """Optional delivery options before fetching rates"""
 
@@ -736,14 +690,14 @@ class ShippingCog(commands.Cog):
             logger.warning(f"Could not init EasyPost for validation: {e}")
 
         if not validation_client:
-            await self._show_package_type(interaction)
+            await self._show_delivery_options(interaction)
             return
 
         try:
             result = await asyncio.to_thread(validation_client.validate_address, to_addr)
         except Exception as e:
             logger.error(f"Address validation error: {e}")
-            await self._show_package_type(interaction)
+            await self._show_delivery_options(interaction)
             return
 
         if result.is_valid and result.validated_address:
@@ -793,23 +747,7 @@ class ShippingCog(commands.Cog):
             await interaction.followup.send(embed=embed)
             return
 
-        await self._show_package_type(interaction)
-
-    async def _show_package_type(self, interaction: discord.Interaction):
-        """Ask envelope or box"""
-        user_id = interaction.user.id
-        session = self.sessions.get(user_id)
-        if not session:
-            return
-
-        embed = discord.Embed(
-            title="\u2709\ufe0f Package Type",
-            description="Is this an **envelope** or a **box/package**?",
-            color=discord.Color.blue()
-        )
-
-        view = PackageTypeView(self, user_id)
-        await interaction.followup.send(embed=embed, view=view)
+        await self._show_delivery_options(interaction)
 
     async def _show_delivery_options(self, interaction: discord.Interaction):
         """Show optional delivery options before fetching rates"""
@@ -839,26 +777,9 @@ class ShippingCog(commands.Cog):
         to_addr = session["to_addr"]
         parcel = session["parcel"]
 
-        # Determine package type for filtering returned rates
-        package_type = session.get("package_type", "box")
-        ENVELOPE_PKG_TYPES = {"flat_rate_envelope", "flat_rate_legal_envelope", "flat_rate_padded_envelope", "letter"}
-        BOX_PKG_TYPES = {"package", "small_flat_rate_box", "medium_flat_rate_box", "large_flat_rate_box", "large_flat_rate_board_game_box", "regional_rate_box_a", "regional_rate_box_b"}
-
         def is_fedex_one_rate(rate: Rate) -> bool:
             """FedEx One Rate requires FedEx-branded packaging, filter these out"""
             return "one rate" in (rate.servicelevel_name or "").lower()
-
-        def matches_package_type(rate: Rate) -> bool:
-            """Filter rates based on user's envelope/box selection"""
-            if is_fedex_one_rate(rate):
-                return False
-            pkg = (rate.package_type or "").lower()
-            if not pkg:
-                return True  # Keep rates with no package_type info
-            if package_type == "envelope":
-                return pkg in ENVELOPE_PKG_TYPES
-            else:
-                return pkg not in ENVELOPE_PKG_TYPES
 
         # Fetch rates from all providers in parallel (base + signature)
         all_base_rates = []
@@ -886,9 +807,9 @@ class ShippingCog(commands.Cog):
                     logger.error(f"Error fetching {rate_type} rates from {provider_name}: {e}")
                     errors.append(f"{provider_name} ({rate_type}): {e}")
 
-        # Filter by package type, then split by carrier
-        all_base_rates = [r for r in all_base_rates if matches_package_type(r)]
-        all_sig_rates = [r for r in all_sig_rates if matches_package_type(r)]
+        # Filter out FedEx One Rate (requires FedEx-branded packaging)
+        all_base_rates = [r for r in all_base_rates if not is_fedex_one_rate(r)]
+        all_sig_rates = [r for r in all_sig_rates if not is_fedex_one_rate(r)]
 
         def matches_carrier(rate: Rate, carrier: str) -> bool:
             return carrier in rate.provider.lower()
