@@ -12,7 +12,8 @@ const ShippingApp = {
         fromAddress: null,
         toAddress: null,
         parcel: null,
-        history: []
+        history: [],
+        chatParsedData: null
     },
 
     // Package presets
@@ -65,6 +66,19 @@ const ShippingApp = {
 
         document.getElementById('parse-val-address').addEventListener('click', () => {
             this.parseAndFillAddress('val');
+        });
+
+        // Chat send button
+        document.getElementById('chat-send-btn').addEventListener('click', () => {
+            this.sendChatMessage();
+        });
+
+        // Chat Enter key (Shift+Enter for newline)
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendChatMessage();
+            }
         });
 
         // Package preset radio buttons
@@ -543,8 +557,8 @@ const ShippingApp = {
     },
 
     // Render rates results with tabs (providers) -> accordions (carriers) -> table (services)
-    renderRates(ratesData, errors, validatedAddress = null, originalAddress = null) {
-        const container = document.getElementById('rates-results');
+    renderRates(ratesData, errors, validatedAddress = null, originalAddress = null, containerId = 'rates-results') {
+        const container = document.getElementById(containerId);
 
         let html = '';
 
@@ -1203,6 +1217,208 @@ const ShippingApp = {
             await axios.post(`${this.config.apiUrl}/history`, labelData);
         } catch (error) {
             console.error('Error saving to history:', error);
+        }
+    },
+
+    // ── Chat Methods ──
+
+    async sendChatMessage() {
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        if (!message) return;
+
+        // Display user message
+        this.addChatMessage('user', message);
+        input.value = '';
+
+        // Show typing indicator
+        const typingId = this.addChatMessage('bot', '<div class="typing-indicator"><span></span><span></span><span></span></div>');
+
+        try {
+            const response = await axios.post(`${this.config.apiUrl}/chat`, { message });
+
+            // Remove typing indicator
+            document.getElementById(typingId)?.remove();
+
+            if (response.data.success) {
+                const parsed = response.data.data;
+                this.state.chatParsedData = parsed;
+
+                // Show parsed data as bot message
+                this.addChatMessage('bot', this.formatParsedDataMessage(parsed));
+
+                // Show confirmation card with Get Rates button
+                this.renderParsedData(parsed);
+            } else {
+                this.addChatMessage('bot', `<span class="text-danger">${response.data.error}</span>`);
+            }
+        } catch (error) {
+            document.getElementById(typingId)?.remove();
+            const respData = error.response?.data;
+
+            if (respData?.error === 'missing_fields' && respData?.missing) {
+                this.addChatMessage('bot', this.formatMissingFieldsMessage(respData.missing));
+            } else {
+                const errorMsg = respData?.error || error.message || 'Failed to process message';
+                this.addChatMessage('bot', `<span class="text-danger">${errorMsg}</span>`);
+            }
+        }
+    },
+
+    formatMissingFieldsMessage(missing) {
+        const sectionLabels = {
+            from_address: 'From Address',
+            to_address: 'To Address',
+            parcel: 'Package Details'
+        };
+
+        let html = `<strong>I'm missing some info from your message:</strong>`;
+        html += `<div class="missing-fields mt-2">`;
+
+        for (const [section, fields] of Object.entries(missing)) {
+            const label = sectionLabels[section] || section;
+            html += `<div class="mb-2"><strong>${label}</strong>`;
+            html += `<ul class="mb-0 ps-3">`;
+            fields.forEach(f => {
+                html += `<li>${f}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        html += `</div>`;
+        html += `<p class="mt-2 mb-0 text-muted"><small><strong>Example:</strong> "Ship from 3006 NW 72nd Ave, Miami FL 33122 to 2755 E Philadelphia St, Ontario CA 91761, 43x34x34cm 30kg"</small></p>`;
+        return html;
+    },
+
+    addChatMessage(sender, content) {
+        const container = document.getElementById('chat-messages');
+        const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+        const isBot = sender === 'bot';
+
+        const msgDiv = document.createElement('div');
+        msgDiv.id = id;
+        msgDiv.className = `chat-message ${isBot ? 'bot-message' : 'user-message'}`;
+        msgDiv.innerHTML = `
+            <div class="message-icon"><i class="bi ${isBot ? 'bi-robot' : 'bi-person-fill'}"></i></div>
+            <div class="message-content">${content}</div>
+        `;
+
+        container.appendChild(msgDiv);
+        container.scrollTop = container.scrollHeight;
+        return id;
+    },
+
+    formatParsedDataMessage(parsed) {
+        const from = parsed.from_address;
+        const to = parsed.to_address;
+        const p = parsed.parcel;
+
+        return `
+            <strong>Got it! Here's what I parsed:</strong>
+            <div class="parsed-summary mt-2">
+                <div><i class="bi bi-geo-alt"></i> <strong>From:</strong> ${from.street1 ? from.street1 + ', ' : ''}${from.city}, ${from.state} ${from.zip}</div>
+                <div><i class="bi bi-geo-alt-fill"></i> <strong>To:</strong> ${to.street1 ? to.street1 + ', ' : ''}${to.city}, ${to.state} ${to.zip}</div>
+                <div><i class="bi bi-box"></i> <strong>Package:</strong> ${p.length}" x ${p.width}" x ${p.height}", ${p.weight} lbs</div>
+            </div>
+            <p class="mt-2 mb-0 text-muted"><small>Click <strong>Get Rates</strong> to compare shipping options.</small></p>
+        `;
+    },
+
+    renderParsedData(parsed) {
+        const container = document.getElementById('chat-parsed-data');
+        const from = parsed.from_address;
+        const to = parsed.to_address;
+        const p = parsed.parcel;
+
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-check-circle"></i> Shipment Details Confirmed
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-5">
+                            <strong>From:</strong><br>
+                            ${from.name ? from.name + '<br>' : ''}
+                            ${from.street1 ? from.street1 + '<br>' : ''}
+                            ${from.city}, ${from.state} ${from.zip}
+                        </div>
+                        <div class="col-md-5">
+                            <strong>To:</strong><br>
+                            ${to.name ? to.name + '<br>' : ''}
+                            ${to.street1 ? to.street1 + '<br>' : ''}
+                            ${to.city}, ${to.state} ${to.zip}
+                        </div>
+                        <div class="col-md-2 text-center">
+                            <strong>Package</strong><br>
+                            ${p.length}" x ${p.width}" x ${p.height}"<br>
+                            ${p.weight} lbs
+                        </div>
+                    </div>
+                    <button class="btn btn-primary w-100 mt-3" onclick="ShippingApp.getChatRates()">
+                        <i class="bi bi-search"></i> Get Rates
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    async getChatRates() {
+        const parsed = this.state.chatParsedData;
+        if (!parsed) return;
+
+        const fromAddress = {
+            ...parsed.from_address,
+            country: parsed.from_address.country || 'US',
+            phone: parsed.from_address.phone || '555-000-0000'
+        };
+        const toAddress = {
+            ...parsed.to_address,
+            country: parsed.to_address.country || 'US',
+            phone: parsed.to_address.phone || '555-000-0000'
+        };
+        const parcel = parsed.parcel;
+
+        // Store state so purchaseLabel() works from chat tab
+        this.state.fromAddress = fromAddress;
+        this.state.toAddress = toAddress;
+        this.state.parcel = parcel;
+
+        this.showLoading('Comparing rates from all providers...');
+
+        try {
+            // Validate address first
+            let validatedAddress = toAddress;
+            try {
+                const valResp = await axios.post(`${this.config.apiUrl}/validate`, { address: toAddress });
+                if (valResp.data.success && valResp.data.data.validated_address) {
+                    validatedAddress = valResp.data.data.validated_address;
+                    this.state.validatedToAddress = validatedAddress;
+                }
+            } catch (e) {
+                console.warn('Address validation failed, using original:', e);
+            }
+
+            const response = await axios.post(`${this.config.apiUrl}/rates`, {
+                from_address: fromAddress,
+                to_address: validatedAddress,
+                parcel: parcel
+            });
+
+            this.hideLoading();
+
+            if (response.data.success) {
+                this.state.ratesData = response.data.data;
+                this.renderRates(response.data.data, response.data.errors, validatedAddress, toAddress, 'chat-rates-results');
+                this.addChatMessage('bot', `Found rates! Check the results on the right. Click <strong>Buy</strong> on any rate to purchase a label.`);
+            } else {
+                this.addChatMessage('bot', `<span class="text-danger">Failed to get rates: ${response.data.error}</span>`);
+            }
+        } catch (error) {
+            this.hideLoading();
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to get rates';
+            this.addChatMessage('bot', `<span class="text-danger">${errorMsg}</span>`);
         }
     },
 

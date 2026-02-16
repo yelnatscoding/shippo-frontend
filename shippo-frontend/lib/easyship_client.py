@@ -103,11 +103,8 @@ class EasyshipClient:
             }
         }
 
-        # Add signature requirement if specified
-        if signature_confirmation:
-            payload["buyer_regulatory_identifiers"] = {
-                "signature_required": True
-            }
+        # Note: Easyship rates API doesn't support signature_confirmation as a
+        # request parameter. Signature options are determined by courier/service.
 
         try:
             # Make API request
