@@ -23,23 +23,37 @@ from google.genai import types as genai_types
 
 logger = logging.getLogger(__name__)
 
-# Try to import shipping models and clients
+# Import models separately from provider clients so Address/Parcel/Rate
+# are available even when optional provider SDKs (easypost, shippo) are missing.
 try:
     from models import Address, Parcel, Rate, ValidationResult
-    from shipengine_client import ShipEngineClient
-    from easypost_client import EasyPostClient
-    from shippo_client import ShippoClient
-    SHIPPING_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Could not import shipping modules: {e}")
-    SHIPPING_AVAILABLE = False
+    logger.warning(f"Could not import shipping models: {e}")
     Address = None
     Parcel = None
     Rate = None
     ValidationResult = None
-    ShipEngineClient = None
-    EasyPostClient = None
-    ShippoClient = None
+
+# Provider clients are optional — each may require its own SDK
+ShipEngineClient = None
+EasyPostClient = None
+ShippoClient = None
+SHIPPING_AVAILABLE = False
+try:
+    from shipengine_client import ShipEngineClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
+try:
+    from easypost_client import EasyPostClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
+try:
+    from shippo_client import ShippoClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
 
 
 # --- Field display names for user-friendly messages ---
