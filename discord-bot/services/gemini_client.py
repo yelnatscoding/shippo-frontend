@@ -23,6 +23,95 @@ class GeminiClient:
         self.client = genai.Client(api_key=self.api_key)
         logger.info("Gemini client initialized")
 
+    # --- Shipping tool declarations for function calling ---
+    SHIPPING_TOOLS = [
+        {
+            "name": "set_to_address",
+            "description": (
+                "Set or update the DESTINATION (recipient) address. "
+                "Call this when the user provides recipient/destination info. "
+                "All addresses are destination unless user explicitly says 'from' or 'ship from'."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING", "description": "Recipient full name"},
+                    "street": {"type": "STRING", "description": "Street address (no apt/suite/unit)"},
+                    "street2": {"type": "STRING", "description": "Apt, suite, unit, floor (e.g. 'Apt 4B')"},
+                    "city": {"type": "STRING", "description": "City name"},
+                    "state": {"type": "STRING", "description": "2-letter state code (e.g. CA, TX)"},
+                    "zip": {"type": "STRING", "description": "5-digit ZIP code"},
+                    "phone": {"type": "STRING", "description": "10-digit phone (digits only, no formatting)"},
+                    "email": {"type": "STRING", "description": "Email address"},
+                },
+            },
+        },
+        {
+            "name": "set_from_address",
+            "description": (
+                "Set or update the ORIGIN (sender) address. "
+                "ONLY call this when the user EXPLICITLY says 'from', 'ship from', or 'sending from'. "
+                "The default origin is already pre-filled — do NOT call this unless user provides a different origin."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING", "description": "Sender full name"},
+                    "street": {"type": "STRING", "description": "Origin street address"},
+                    "city": {"type": "STRING", "description": "Origin city"},
+                    "state": {"type": "STRING", "description": "2-letter state code"},
+                    "zip": {"type": "STRING", "description": "5-digit ZIP code"},
+                    "phone": {"type": "STRING", "description": "10-digit phone (digits only)"},
+                },
+            },
+        },
+        {
+            "name": "set_package",
+            "description": "Set or update package weight and/or dimensions.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "weight": {"type": "NUMBER", "description": "Weight in pounds (convert oz: 16oz=1lb)"},
+                    "length": {"type": "NUMBER", "description": "Length in inches"},
+                    "width": {"type": "NUMBER", "description": "Width in inches"},
+                    "height": {"type": "NUMBER", "description": "Height in inches"},
+                },
+            },
+        },
+        {
+            "name": "update_field",
+            "description": (
+                "Update a single specific field when the user wants to correct something. "
+                "Use this for corrections like 'change the zip to 78702' or 'the name is actually Jane'."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "field": {
+                        "type": "STRING",
+                        "description": "Field to update: to_name, to_street, to_street2, to_city, to_state, to_zip, to_phone, to_email, from_name, from_street, from_city, from_state, from_zip, from_phone, weight, length, width, height",
+                    },
+                    "value": {"type": "STRING", "description": "New value for the field"},
+                },
+                "required": ["field", "value"],
+            },
+        },
+        {
+            "name": "ask_clarification",
+            "description": (
+                "Ask the user a clarifying question when their input is genuinely ambiguous. "
+                "Only use when you truly cannot determine intent from context."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING", "description": "The question to ask the user"},
+                },
+                "required": ["question"],
+            },
+        },
+    ]
+
     async def parse_shipping_request(self, message: str) -> Dict[str, Any]:
         """
         Parse natural language shipping request.
