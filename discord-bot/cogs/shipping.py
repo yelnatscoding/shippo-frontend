@@ -502,28 +502,75 @@ class ShippingCog(commands.Cog):
                 return
 
             async with message.channel.typing():
-                result = await self.gemini.parse_shipping_info(content, session.get("collected"))
+                result = await self.gemini.process_shipping_message(
+                    content, session["messages"]
+                )
 
-            collected = result["collected"]
+            if result.get("error"):
+                await message.reply(f"\u274c AI error: {result['error']}. Please try again.")
+                return
 
-            # When user says "from", protect existing to_* fields and recover
-            # misidentified from data — Gemini often puts from-address data into to_* fields
-            if "from" in content_lower:
-                existing = session.get("collected", {})
-                for key in list(collected.keys()):
-                    if key.startswith("to_") and key in existing and existing[key]:
-                        # If Gemini changed a to_* field, it's likely from-address data
-                        from_key = key.replace("to_", "from_", 1)
-                        if collected[key] != existing[key] and not collected.get(from_key):
-                            collected[from_key] = collected[key]
-                        collected[key] = existing[key]
-            else:
-                # Strip hallucinated from_* fields when user didn't say "from"
-                for key in list(collected.keys()):
-                    if key.startswith("from_"):
-                        del collected[key]
-            missing = result["missing"]
-            has_dimensions = result["has_dimensions"]
+            function_calls = result["function_calls"]
+            model_response = result["model_response"]
+
+            # Append user message + model response to history
+            session["messages"].append(
+                genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=content)])
+            )
+            if model_response:
+                session["messages"].append(model_response)
+
+            # Handle ask_clarification — relay question to user
+            for fc in function_calls:
+                if fc["name"] == "ask_clarification":
+                    question = fc["args"].get("question", "Could you clarify?")
+                    await message.reply(f"\U0001f914 {question}")
+                    # Add function response to history
+                    if function_calls:
+                        session["messages"].append(
+                            self.gemini.build_function_responses(function_calls)
+                        )
+                    return
+
+            # Process function calls to update session state
+            collected = session["collected"]
+            for fc in function_calls:
+                if fc["name"] == "set_to_address":
+                    for key, value in fc["args"].items():
+                        collected[f"to_{key}"] = value
+                elif fc["name"] == "set_from_address":
+                    for key, value in fc["args"].items():
+                        collected[f"from_{key}"] = value
+                elif fc["name"] == "set_package":
+                    for key, value in fc["args"].items():
+                        collected[key] = value
+                elif fc["name"] == "update_field":
+                    field = fc["args"].get("field", "")
+                    value = fc["args"].get("value", "")
+                    if field in collected or field.startswith(("to_", "from_")) or field in ("weight", "length", "width", "height"):
+                        # Convert numeric fields
+                        if field in ("weight", "length", "width", "height"):
+                            try:
+                                value = float(value)
+                            except (ValueError, TypeError):
+                                pass
+                        collected[field] = value
+
+            # Add function responses to history
+            if function_calls:
+                session["messages"].append(
+                    self.gemini.build_function_responses(function_calls)
+                )
+
+            # Trim history to last 20 entries to control token cost
+            if len(session["messages"]) > 20:
+                # Keep first 2 (system context) + last 18
+                session["messages"] = session["messages"][:2] + session["messages"][-18:]
+
+            # Determine missing required fields
+            required = ["to_name", "to_street", "to_city", "to_state", "to_zip", "to_phone", "weight"]
+            missing = [f for f in required if not collected.get(f)]
+            has_dimensions = all(collected.get(d) for d in ["length", "width", "height"])
 
             session["collected"] = collected
             session["missing"] = missing
@@ -550,6 +597,13 @@ class ShippingCog(commands.Cog):
                     collected_display.append(f"**Weight:** {collected['weight']} lbs")
                 if has_dimensions:
                     collected_display.append(f"**Dimensions:** {collected.get('length')}x{collected.get('width')}x{collected.get('height')} in")
+
+                # Show from-address if user provided one
+                if collected.get("from_street"):
+                    from_parts = [collected.get("from_name", ""), collected["from_street"]]
+                    if collected.get("from_city"):
+                        from_parts.append(f"{collected['from_city']}, {collected.get('from_state', '')} {collected.get('from_zip', '')}")
+                    collected_display.append(f"**From:** {', '.join(p for p in from_parts if p)}")
 
                 embed = discord.Embed(
                     title="\U0001f4cb Shipment Info",
