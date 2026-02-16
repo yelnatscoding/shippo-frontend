@@ -513,6 +513,7 @@ class ShippingCog(commands.Cog):
 
             function_calls = result["function_calls"]
             model_response = result["model_response"]
+            logger.info(f"Gemini returned {len(function_calls)} function call(s) for user {user_id}: {[fc['name'] for fc in function_calls]}")
 
             # Append user message + model response to history
             session["messages"].append(
@@ -526,9 +527,12 @@ class ShippingCog(commands.Cog):
                 if fc["name"] == "ask_clarification":
                     question = fc["args"].get("question", "Could you clarify?")
                     await message.reply(f"\U0001f914 {question}")
-                    # Add function response to history
+                    # Add function response + model ack to maintain turn alternation
                     session["messages"].append(
                         self.gemini.build_function_responses(function_calls)
+                    )
+                    session["messages"].append(
+                        genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=question)])
                     )
                     return
 
@@ -556,10 +560,16 @@ class ShippingCog(commands.Cog):
                                 pass
                         collected[field] = value
 
-            # Add function responses to history
+            # Add function responses + synthetic model ack to history
+            # Gemini requires strict user/model turn alternation.
+            # Function responses are role=user, so we must follow with a model turn
+            # before the next user message.
             if function_calls:
                 session["messages"].append(
                     self.gemini.build_function_responses(function_calls)
+                )
+                session["messages"].append(
+                    genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="OK, updated.")])
                 )
 
             # Trim history to last 20 entries to control token cost
