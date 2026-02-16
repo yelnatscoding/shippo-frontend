@@ -112,6 +112,98 @@ class GeminiClient:
         },
     ]
 
+    def _build_shipping_system_context(self, default_origin: Dict[str, str]) -> str:
+        """Build system context for shipping conversation."""
+        origin_parts = [
+            default_origin.get("name", "Sender"),
+            default_origin.get("street1", ""),
+            f"{default_origin.get('city', '')}, {default_origin.get('state', '')} {default_origin.get('zip', '')}",
+            default_origin.get("phone", ""),
+        ]
+        origin_text = ", ".join(p for p in origin_parts if p)
+
+        return (
+            "You are a shipping assistant helping create shipping labels.\n\n"
+            f"Default origin (from) address:\n  {origin_text}\n\n"
+            "Rules:\n"
+            "- The user is providing DESTINATION (to) address info unless they explicitly say 'from' or 'ship from'\n"
+            "- Use set_to_address for destination info, set_from_address ONLY when user explicitly provides origin\n"
+            "- Use set_package for weight and dimensions\n"
+            "- Use update_field when user wants to correct a specific previously-set field\n"
+            "- Use ask_clarification when input is genuinely ambiguous\n"
+            "- You can call multiple tools in one response (e.g. set_to_address AND set_package)\n"
+            "- Phone numbers: 10 digits only, strip all formatting\n"
+            "- State: always 2-letter abbreviation (e.g. CA, TX, NY)\n"
+            "- ZIP: always 5 digits\n"
+            "- Weight: convert ounces to pounds if needed (16oz = 1lb)\n"
+            "- Separate apt/suite/unit into street2 field\n"
+            "- If user says '12x8x4' that means length=12, width=8, height=4"
+        )
+
+    async def process_shipping_message(
+        self,
+        message: str,
+        history: List[types.Content],
+    ) -> Dict[str, Any]:
+        """
+        Process a shipping message using function calling.
+        Returns dict with 'function_calls' list and 'model_response' Content for history.
+        """
+        # Build the tools config
+        tool = types.Tool(function_declarations=[
+            types.FunctionDeclaration(**decl) for decl in self.SHIPPING_TOOLS
+        ])
+        config = types.GenerateContentConfig(
+            tools=[tool],
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        # Append user message to history
+        contents = list(history) + [
+            types.Content(role="user", parts=[types.Part.from_text(text=message)])
+        ]
+
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.MODEL,
+                contents=contents,
+                config=config,
+            )
+        except Exception as e:
+            logger.error(f"Gemini function calling error: {e}")
+            return {"function_calls": [], "model_response": None, "error": str(e)}
+
+        # Extract function calls and text from response
+        function_calls = []
+        text_parts = []
+
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if part.function_call:
+                    fc = part.function_call
+                    function_calls.append({
+                        "name": fc.name,
+                        "args": dict(fc.args) if fc.args else {},
+                    })
+                elif part.text:
+                    text_parts.append(part.text)
+
+        return {
+            "function_calls": function_calls,
+            "text": " ".join(text_parts) if text_parts else None,
+            "model_response": response.candidates[0].content if response.candidates else None,
+        }
+
+    def build_function_responses(self, function_calls: List[Dict]) -> types.Content:
+        """Build a Content with function responses to append to history."""
+        parts = []
+        for fc in function_calls:
+            parts.append(types.Part.from_function_response(
+                name=fc["name"],
+                response={"status": "ok"},
+            ))
+        return types.Content(role="user", parts=parts)
+
     async def parse_shipping_request(self, message: str) -> Dict[str, Any]:
         """
         Parse natural language shipping request.
