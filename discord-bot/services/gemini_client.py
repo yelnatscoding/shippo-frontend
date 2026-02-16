@@ -1,7 +1,8 @@
 """Gemini AI client for natural language processing"""
 
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from typing import Optional, Dict, Any, List
 import json
 import logging
@@ -12,13 +13,14 @@ logger = logging.getLogger(__name__)
 class GeminiClient:
     """Wrapper for Google Gemini API"""
 
+    MODEL = "gemini-2.0-flash"
+
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY not configured")
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        self.client = genai.Client(api_key=self.api_key)
         logger.info("Gemini client initialized")
 
     async def parse_shipping_request(self, message: str) -> Dict[str, Any]:
@@ -48,7 +50,10 @@ If dimensions missing, set length/width/height to null.
 Return ONLY the JSON object, no other text."""
 
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = await self.client.aio.models.generate_content(
+                model=self.MODEL,
+                contents=prompt,
+            )
             text = response.text.strip()
 
             # Extract JSON from response
@@ -187,7 +192,10 @@ Other rules:
 - Return ONLY the JSON object, no other text."""
 
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = await self.client.aio.models.generate_content(
+                model=self.MODEL,
+                contents=prompt,
+            )
             text = response.text.strip()
 
             if "```json" in text:
@@ -247,7 +255,10 @@ Return this exact JSON structure (use null for missing values):
 Return ONLY the JSON object, no other text."""
 
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = await self.client.aio.models.generate_content(
+                model=self.MODEL,
+                contents=prompt,
+            )
             text = response.text.strip()
 
             if "```json" in text:
@@ -313,7 +324,10 @@ USER QUESTION: {question}
 ANSWER:"""
 
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = await self.client.aio.models.generate_content(
+                model=self.MODEL,
+                contents=prompt,
+            )
             return response.text.strip()
         except Exception as e:
             logger.error(f"Gemini chat error: {e}")
