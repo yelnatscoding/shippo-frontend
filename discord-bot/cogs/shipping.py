@@ -19,6 +19,7 @@ lib_path = os.path.join(os.path.dirname(__file__), "..", "..", "shippo-frontend"
 sys.path.insert(0, lib_path)
 
 from services.gemini_client import GeminiClient
+from google.genai import types as genai_types
 
 logger = logging.getLogger(__name__)
 
@@ -458,13 +459,18 @@ class ShippingCog(commands.Cog):
 
         # Start new session
         if content_lower in ["ship", "shipping", "new shipment", "create label", "new label"]:
+            default_origin = self.config.get("default_origin_address", {})
+            system_context = self.gemini._build_shipping_system_context(default_origin) if self.gemini else ""
+
             self.sessions[user_id] = {
                 "step": "awaiting_info",
                 "collected": {},
                 "missing": [],
+                "messages": [
+                    genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=system_context)]),
+                    genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="Ready to help with your shipment! Tell me the recipient details and package info.")]),
+                ],
             }
-
-            default_origin = self.config.get("default_origin_address", {})
 
             embed = discord.Embed(
                 title="\U0001f4e6 New Shipment",
@@ -1030,13 +1036,18 @@ class ShippingCog(commands.Cog):
             await interaction.response.send_message("Shipping service not configured.", ephemeral=True)
             return
 
+        default_origin = self.config.get("default_origin_address", {})
+        system_context = self.gemini._build_shipping_system_context(default_origin) if self.gemini else ""
+
         self.sessions[interaction.user.id] = {
             "step": "awaiting_info",
             "collected": {},
             "missing": [],
+            "messages": [
+                genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=system_context)]),
+                genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="Ready to help with your shipment! Tell me the recipient details and package info.")]),
+            ],
         }
-
-        default_origin = self.config.get("default_origin_address", {})
 
         embed = discord.Embed(
             title="\U0001f4e6 New Shipment",
