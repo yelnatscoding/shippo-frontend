@@ -117,23 +117,25 @@ class GoriClient:
             rate_list = data if isinstance(data, list) else data.get("rates", [])
             shipment_id = data.get("shipment_id") if isinstance(data, dict) else None
 
-            # Log first rate to debug field names
-            if rate_list:
-                print(f"GORI DEBUG - sample rate keys: {list(rate_list[0].keys())}")
-                print(f"GORI DEBUG - sample rate: {rate_list[0]}")
-
             for rate_data in rate_list:
+                fees = rate_data.get("fees", {})
+                amount = float(fees.get("amount", 0)) if isinstance(fees, dict) else 0
+                carrier = rate_data.get("carrier", "Gori")
+                service = rate_data.get("service", "")
+                rate_id = f"gori_{carrier}_{service}_{rate_data.get('package_type', '')}"
+
                 rate = Rate(
-                    object_id=rate_data.get("id", ""),
-                    provider=rate_data.get("carrier", "Gori"),
-                    servicelevel_name=rate_data.get("service", ""),
-                    servicelevel_token=rate_data.get("id", ""),
-                    amount=float(rate_data.get("amount", 0)),
-                    currency=rate_data.get("currency", "USD"),
+                    object_id=rate_id,
+                    provider=carrier,
+                    servicelevel_name=service,
+                    servicelevel_token=rate_id,
+                    amount=amount,
+                    currency="USD",
                     estimated_days=rate_data.get("estimated_days"),
-                    duration_terms=f"{rate_data.get('estimated_days', '?')} days" if rate_data.get("estimated_days") else None,
+                    duration_terms=rate_data.get("duration_terms"),
                     shipment_id=shipment_id,
                     signature_confirmation=signature_confirmation,
+                    package_type=rate_data.get("package_type"),
                 )
                 rates.append(rate)
 
