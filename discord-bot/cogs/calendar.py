@@ -22,7 +22,9 @@ class CalendarCog(commands.Cog):
         self.parser = CalendarParser()
         self.gemini = None
         self.email_clients: Dict[str, EmailClient] = {}
+        # Track last UID per account+folder combo (e.g. "gao@x.com:INBOX")
         self.last_uids: Dict[str, int] = {}
+        self.poll_folders = ["INBOX", "Sent"]
 
         # Initialize email clients
         for account in self.config.get("accounts", []):
@@ -39,8 +41,9 @@ class CalendarCog(commands.Cog):
                     imap_port=account.get("imap_port", 993),
                     smtp_port=account.get("smtp_port", 587)
                 )
-                self.last_uids[email_addr] = 0
-                logger.info(f"Initialized email client for {email_addr}")
+                for folder in self.poll_folders:
+                    self.last_uids[f"{email_addr}:{folder}"] = 0
+                logger.info(f"Initialized email client for {email_addr} (folders: {self.poll_folders})")
 
         # Initialize Gemini for plain text parsing
         if bot.config.gemini_api_key:
@@ -74,17 +77,30 @@ class CalendarCog(commands.Cog):
             return
 
         for email_addr, client in self.email_clients.items():
+          for folder in self.poll_folders:
+            uid_key = f"{email_addr}:{folder}"
             try:
-                emails = client.fetch_new_emails(since_uid=self.last_uids.get(email_addr))
+                emails = client.fetch_new_emails(
+                    folder=folder,
+                    since_uid=self.last_uids.get(uid_key)
+                )
+
+                if not emails:
+                    logger.info(f"No new emails for {email_addr}/{folder} (last_uid={self.last_uids.get(uid_key, 0)})")
 
                 for email_dict in emails:
                     # Update last seen UID
                     uid = email_dict.get("uid", 0)
-                    if uid > self.last_uids.get(email_addr, 0):
-                        self.last_uids[email_addr] = uid
+                    if uid > self.last_uids.get(uid_key, 0):
+                        self.last_uids[uid_key] = uid
 
                     if not self.parser.is_calendar_email(email_dict):
                         continue
+
+                    logger.info(
+                        f"Calendar email detected in {folder} uid={uid} "
+                        f"subject='{email_dict.get('subject', '')}'"
+                    )
 
                     # Try to parse ICS attachment first
                     events = []
@@ -121,7 +137,7 @@ class CalendarCog(commands.Cog):
                         await self._post_event(channel, event, email_dict)
 
             except Exception as e:
-                logger.error(f"Error polling {email_addr}: {e}")
+                logger.error(f"Error polling {email_addr}/{folder}: {e}")
 
     @poll_emails.before_loop
     async def before_poll(self):
