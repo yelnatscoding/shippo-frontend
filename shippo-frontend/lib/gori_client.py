@@ -117,6 +117,11 @@ class GoriClient:
             rate_list = data if isinstance(data, list) else data.get("rates", [])
             shipment_id = data.get("shipment_id") if isinstance(data, dict) else None
 
+            # Log first rate to debug field names
+            if rate_list:
+                print(f"GORI DEBUG - sample rate keys: {list(rate_list[0].keys())}")
+                print(f"GORI DEBUG - sample rate: {rate_list[0]}")
+
             for rate_data in rate_list:
                 rate = Rate(
                     object_id=rate_data.get("id", ""),
