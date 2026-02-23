@@ -78,6 +78,44 @@ class GoriClient:
             addr["email"] = address.email
         return addr
 
+    SERVICE_NAMES = {
+        "usps_media": "USPS Media Mail",
+        "usps_ground_advantage": "USPS Ground Advantage",
+        "usps_priority": "USPS Priority",
+        "usps_priority_express": "USPS Priority Express",
+        "usps_first_class": "USPS First Class",
+        "usps_parcel_select": "USPS Parcel Select",
+        "fedex_ground": "FedEx Ground",
+        "fedex_home_delivery": "FedEx Home Delivery",
+        "fedex_2day": "FedEx 2Day",
+        "fedex_express_saver": "FedEx Express Saver",
+        "fedex_standard_overnight": "FedEx Standard Overnight",
+        "fedex_priority_overnight": "FedEx Priority Overnight",
+        "fedex_first_overnight": "FedEx First Overnight",
+        "ups_ground": "UPS Ground",
+        "ups_3_day_select": "UPS 3 Day Select",
+        "ups_2nd_day_air": "UPS 2nd Day Air",
+        "ups_next_day_air_saver": "UPS Next Day Air Saver",
+        "ups_next_day_air": "UPS Next Day Air",
+    }
+
+    PACKAGE_NAMES = {
+        "custom_package": "",
+        "usps_flat_rate_envelope": "Flat Rate Envelope",
+        "usps_legal_flat_rate_envelope": "Legal Flat Rate Envelope",
+        "usps_padded_flat_rate_envelope": "Padded Flat Rate Envelope",
+        "usps_sm_flat_rate_box": "Small Flat Rate Box",
+        "usps_md_flat_rate_box": "Medium Flat Rate Box",
+        "usps_lg_flat_rate_box": "Large Flat Rate Box",
+    }
+
+    def _format_service_name(self, service: str, package_type: str) -> str:
+        name = self.SERVICE_NAMES.get(service, service.replace("_", " ").title())
+        pkg = self.PACKAGE_NAMES.get(package_type, package_type.replace("_", " ").title() if package_type != "custom_package" else "")
+        if pkg:
+            return f"{name} - {pkg}"
+        return name
+
     def get_rates(self, from_address: Address, to_address: Address, parcel: Parcel,
                   signature_confirmation: Optional[str] = None) -> List[Rate]:
         sig_info = f" with signature={signature_confirmation}" if signature_confirmation else ""
@@ -122,12 +160,17 @@ class GoriClient:
                 amount = float(fees.get("amount", 0)) if isinstance(fees, dict) else 0
                 carrier = rate_data.get("carrier", "Gori")
                 service = rate_data.get("service", "")
-                rate_id = f"gori_{carrier}_{service}_{rate_data.get('package_type', '')}"
+                package_type = rate_data.get("package_type", "")
+                rate_id = f"gori_{carrier}_{service}_{package_type}"
+
+                # Build human-readable service name
+                service_name = self._format_service_name(service, package_type)
+                carrier_display = carrier.upper()
 
                 rate = Rate(
                     object_id=rate_id,
-                    provider=carrier,
-                    servicelevel_name=service,
+                    provider=carrier_display,
+                    servicelevel_name=service_name,
                     servicelevel_token=rate_id,
                     amount=amount,
                     currency="USD",
@@ -135,7 +178,7 @@ class GoriClient:
                     duration_terms=rate_data.get("duration_terms"),
                     shipment_id=shipment_id,
                     signature_confirmation=signature_confirmation,
-                    package_type=rate_data.get("package_type"),
+                    package_type=package_type,
                 )
                 rates.append(rate)
 
