@@ -13,6 +13,7 @@ from shippo_client import ShippoClient
 from easypost_client import EasyPostClient
 from shipengine_client import ShipEngineClient
 from easyship_client import EasyshipClient
+from gori_client import GoriClient
 
 # Google Drive is optional - only import if configured
 GoogleDriveUploader = None
@@ -57,6 +58,8 @@ class handler(BaseHTTPRequestHandler):
                 label = self._purchase_shipengine_label(rate_id, label_format, signature_confirmation)
             elif provider == 'easyship':
                 label = self._purchase_easyship_label(rate_id, label_format, signature_confirmation)
+            elif provider == 'gori':
+                label = self._purchase_gori_label(rate_id, label_format, signature_confirmation)
             else:
                 raise ValueError(f"Unknown provider: {provider}")
 
@@ -172,3 +175,12 @@ class handler(BaseHTTPRequestHandler):
         if hasattr(client, 'purchase_label'):
             return client.purchase_label(rate_id, label_format, signature_confirmation)
         raise NotImplementedError("Easyship label purchase not implemented")
+
+    def _purchase_gori_label(self, rate_id, label_format, signature_confirmation=None):
+        """Purchase label from Gori (ShipBae)"""
+        client = GoriClient(
+            client_id=os.environ['GORI_CLIENT_ID'],
+            client_secret=os.environ['GORI_CLIENT_SECRET'],
+            test_mode=os.environ.get('GORI_TEST_MODE', 'false').lower() == 'true'
+        )
+        return client.purchase_label(rate_id, label_format, signature_confirmation)
