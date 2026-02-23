@@ -113,7 +113,7 @@ class GoriClient:
     TRANSIT_DAYS = {
         "usps_media": (2, 8),
         "usps_ground_advantage": (2, 5),
-        "usps_priority": (1, 3),
+        "usps_priority": (2, 3),
         "usps_priority_express": (1, 2),
         "usps_first_class": (2, 5),
         "usps_parcel_select": (2, 8),
