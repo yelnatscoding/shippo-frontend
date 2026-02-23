@@ -109,12 +109,47 @@ class GoriClient:
         "usps_lg_flat_rate_box": "Large Flat Rate Box",
     }
 
+    # Estimated transit days (min, max) by service — matches other providers
+    TRANSIT_DAYS = {
+        "usps_media": (2, 8),
+        "usps_ground_advantage": (2, 5),
+        "usps_priority": (1, 3),
+        "usps_priority_express": (1, 2),
+        "usps_first_class": (2, 5),
+        "usps_parcel_select": (2, 8),
+        "fedex_ground": (1, 7),
+        "fedex_home_delivery": (1, 7),
+        "fedex_2day": (2, 2),
+        "fedex_express_saver": (3, 3),
+        "fedex_standard_overnight": (1, 1),
+        "fedex_priority_overnight": (1, 1),
+        "fedex_first_overnight": (1, 1),
+        "ups_ground": (1, 5),
+        "ups_3_day_select": (3, 3),
+        "ups_2nd_day_air": (2, 2),
+        "ups_next_day_air_saver": (1, 1),
+        "ups_next_day_air": (1, 1),
+    }
+
     def _format_service_name(self, service: str, package_type: str) -> str:
         name = self.SERVICE_NAMES.get(service, service.replace("_", " ").title())
         pkg = self.PACKAGE_NAMES.get(package_type, package_type.replace("_", " ").title() if package_type != "custom_package" else "")
         if pkg:
             return f"{name} - {pkg}"
         return name
+
+    def _get_transit_info(self, service: str):
+        """Return (estimated_days, duration_terms) for a service."""
+        days = self.TRANSIT_DAYS.get(service)
+        if days:
+            min_d, max_d = days
+            estimated = min_d
+            if min_d == max_d:
+                terms = f"{min_d} day{'s' if min_d > 1 else ''}"
+            else:
+                terms = f"{min_d}-{max_d} days"
+            return estimated, terms
+        return None, None
 
     def get_rates(self, from_address: Address, to_address: Address, parcel: Parcel,
                   signature_confirmation: Optional[str] = None) -> List[Rate]:
@@ -155,17 +190,28 @@ class GoriClient:
             rate_list = data if isinstance(data, list) else data.get("rates", [])
             shipment_id = data.get("shipment_id") if isinstance(data, dict) else None
 
+            seen = set()
             for rate_data in rate_list:
+                # Skip rates with errors (e.g. oversized for service)
+                if "error" in rate_data:
+                    continue
+
                 fees = rate_data.get("fees", {})
                 amount = float(fees.get("amount", 0)) if isinstance(fees, dict) else 0
                 carrier = rate_data.get("carrier", "Gori")
                 service = rate_data.get("service", "")
                 package_type = rate_data.get("package_type", "")
-                rate_id = f"gori_{carrier}_{service}_{package_type}"
 
-                # Build human-readable service name
+                # Deduplicate identical rates
+                dedup_key = (carrier, service, package_type, amount)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                rate_id = f"gori_{carrier}_{service}_{package_type}"
                 service_name = self._format_service_name(service, package_type)
                 carrier_display = carrier.upper()
+                estimated_days, duration_terms = self._get_transit_info(service)
 
                 rate = Rate(
                     object_id=rate_id,
@@ -174,8 +220,8 @@ class GoriClient:
                     servicelevel_token=rate_id,
                     amount=amount,
                     currency="USD",
-                    estimated_days=rate_data.get("estimated_days"),
-                    duration_terms=rate_data.get("duration_terms"),
+                    estimated_days=estimated_days,
+                    duration_terms=duration_terms,
                     shipment_id=shipment_id,
                     signature_confirmation=signature_confirmation,
                     package_type=package_type,
