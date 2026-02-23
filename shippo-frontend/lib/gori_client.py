@@ -177,3 +177,59 @@ class GoriClient:
         except Exception as e:
             logger.error(f"Gori error: {str(e)}")
             raise Exception(f"Gori error: {str(e)}")
+
+    def validate_address(self, address: Address) -> ValidationResult:
+        logger.info(f"Validating address with Gori: {address.street1}, {address.city}, {address.state}")
+
+        payload = {
+            "street1": address.street1,
+            "city": address.city,
+            "state": address.state,
+            "zip": address.zip,
+            "country": address.country,
+        }
+        if address.street2:
+            payload["street2"] = address.street2
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/addresses",
+                json=payload,
+                headers=self._headers(),
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"Gori validation returned status {response.status_code}: {response.text}")
+
+            data = response.json()
+            is_valid = data.get("verified", False)
+            validated_addr = data.get("address", {})
+
+            validated_address = None
+            if is_valid and validated_addr:
+                validated_address = Address(
+                    name=address.name,
+                    street1=validated_addr.get("street1", address.street1),
+                    street2=validated_addr.get("street2", address.street2),
+                    city=validated_addr.get("city", address.city),
+                    state=validated_addr.get("state", address.state),
+                    zip=validated_addr.get("zip", address.zip),
+                    country=validated_addr.get("country", address.country),
+                    phone=address.phone,
+                    email=address.email,
+                )
+
+            return ValidationResult(
+                is_valid=is_valid,
+                messages=data.get("corrections", []),
+                original_address=address,
+                validated_address=validated_address,
+            )
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Gori validation error: {str(e)}")
+            raise Exception(f"Gori validation error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Gori error: {str(e)}")
+            raise Exception(f"Gori error: {str(e)}")
