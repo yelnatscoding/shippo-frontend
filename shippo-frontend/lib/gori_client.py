@@ -113,7 +113,11 @@ class GoriClient:
             data = response.json()
             rates = []
 
-            for rate_data in data.get("rates", []):
+            # Response may be a list of rates directly or a dict with "rates" key
+            rate_list = data if isinstance(data, list) else data.get("rates", [])
+            shipment_id = data.get("shipment_id") if isinstance(data, dict) else None
+
+            for rate_data in rate_list:
                 rate = Rate(
                     object_id=rate_data.get("id", ""),
                     provider=rate_data.get("carrier", "Gori"),
@@ -123,7 +127,7 @@ class GoriClient:
                     currency=rate_data.get("currency", "USD"),
                     estimated_days=rate_data.get("estimated_days"),
                     duration_terms=f"{rate_data.get('estimated_days', '?')} days" if rate_data.get("estimated_days") else None,
-                    shipment_id=data.get("shipment_id"),
+                    shipment_id=shipment_id,
                     signature_confirmation=signature_confirmation,
                 )
                 rates.append(rate)
