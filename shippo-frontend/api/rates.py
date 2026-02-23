@@ -30,6 +30,7 @@ class handler(BaseHTTPRequestHandler):
             from easypost_client import EasyPostClient
             from shipengine_client import ShipEngineClient
             from easyship_client import EasyshipClient
+            from gori_client import GoriClient
 
             # Parse request body
             content_length = int(self.headers.get('Content-Length', 0))
@@ -88,6 +89,16 @@ class handler(BaseHTTPRequestHandler):
                         self._get_easyship_rates,
                         from_address, to_address, parcel, 'STANDARD'
                     )] = ('easyship', 'signature')
+
+                if os.environ.get('GORI_CLIENT_ID'):
+                    futures[executor.submit(
+                        self._get_gori_rates,
+                        from_address, to_address, parcel, None
+                    )] = ('gori', 'base')
+                    futures[executor.submit(
+                        self._get_gori_rates,
+                        from_address, to_address, parcel, 'STANDARD'
+                    )] = ('gori', 'signature')
 
                 # Collect results
                 for future in as_completed(futures, timeout=15):
@@ -192,6 +203,21 @@ class handler(BaseHTTPRequestHandler):
         from easyship_client import EasyshipClient
         client = EasyshipClient(
             api_key=os.environ['EASYSHIP_API_KEY']
+        )
+        rates = client.get_rates(from_address, to_address, parcel,
+                                  signature_confirmation=signature_confirmation)
+        return [self._serialize_rate(r) for r in rates]
+
+    def _get_gori_rates(self, from_address, to_address, parcel, signature_confirmation):
+        """Get rates from Gori (ShipBae)"""
+        lib_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib')
+        if lib_path not in sys.path:
+            sys.path.insert(0, lib_path)
+        from gori_client import GoriClient
+        client = GoriClient(
+            client_id=os.environ['GORI_CLIENT_ID'],
+            client_secret=os.environ['GORI_CLIENT_SECRET'],
+            test_mode=os.environ.get('GORI_TEST_MODE', 'false').lower() == 'true'
         )
         rates = client.get_rates(from_address, to_address, parcel,
                                   signature_confirmation=signature_confirmation)
