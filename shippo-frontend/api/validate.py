@@ -10,6 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from models import Address
 from shippo_client import ShippoClient
 from easypost_client import EasyPostClient
+from gori_client import GoriClient
 
 
 class handler(BaseHTTPRequestHandler):
@@ -36,6 +37,8 @@ class handler(BaseHTTPRequestHandler):
                     provider = 'shippo'
                 elif os.environ.get('EASYPOST_API_KEY'):
                     provider = 'easypost'
+                elif os.environ.get('GORI_CLIENT_ID'):
+                    provider = 'gori'
                 else:
                     raise ValueError("No validation provider configured")
 
@@ -44,6 +47,8 @@ class handler(BaseHTTPRequestHandler):
                 result = self._validate_with_shippo(address)
             elif provider == 'easypost':
                 result = self._validate_with_easypost(address)
+            elif provider == 'gori':
+                result = self._validate_with_gori(address)
             else:
                 raise ValueError(f"Unknown provider: {provider}")
 
@@ -101,6 +106,23 @@ class handler(BaseHTTPRequestHandler):
         client = EasyPostClient(
             api_key=os.environ['EASYPOST_API_KEY'],
             test_mode=os.environ.get('EASYPOST_TEST_MODE', 'true').lower() == 'true'
+        )
+
+        validation_result = client.validate_address(address)
+
+        return {
+            'is_valid': validation_result.is_valid,
+            'messages': validation_result.messages,
+            'original': self._serialize_address(validation_result.original_address),
+            'suggested': self._serialize_address(validation_result.validated_address) if validation_result.validated_address else None
+        }
+
+    def _validate_with_gori(self, address):
+        """Validate with Gori (ShipBae)"""
+        client = GoriClient(
+            client_id=os.environ['GORI_CLIENT_ID'],
+            client_secret=os.environ['GORI_CLIENT_SECRET'],
+            test_mode=os.environ.get('GORI_TEST_MODE', 'false').lower() == 'true'
         )
 
         validation_result = client.validate_address(address)
