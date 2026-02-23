@@ -42,7 +42,7 @@ class GoriClient:
 
         response = requests.post(
             f"{self.base_url}/auth/token",
-            json={"client_id": self.client_id, "client_secret": self.client_secret},
+            json={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.client_secret},
             timeout=10
         )
         response.raise_for_status()
