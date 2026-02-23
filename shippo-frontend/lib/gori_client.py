@@ -84,17 +84,19 @@ class GoriClient:
         logger.info(f"Getting rates from Gori{sig_info}")
 
         payload = {
-            "from_address": self._address_to_dict(from_address),
-            "to_address": self._address_to_dict(to_address),
-            "parcel": {
-                "length": parcel.length,
-                "width": parcel.width,
-                "height": parcel.height,
-                "weight": parcel.weight,
-                "distance_unit": parcel.distance_unit,
-                "mass_unit": parcel.mass_unit,
-            },
-            "ship_date": date.today().isoformat(),
+            "shipment": {
+                "from_address": self._address_to_dict(from_address),
+                "to_address": self._address_to_dict(to_address),
+                "parcel": {
+                    "length": parcel.length,
+                    "width": parcel.width,
+                    "height": parcel.height,
+                    "weight": parcel.weight,
+                    "distance_unit": parcel.distance_unit,
+                    "mass_unit": parcel.mass_unit,
+                },
+                "ship_date": date.today().isoformat(),
+            }
         }
 
         try:
