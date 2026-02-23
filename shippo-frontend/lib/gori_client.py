@@ -135,3 +135,45 @@ class GoriClient:
         except Exception as e:
             logger.error(f"Gori error: {str(e)}")
             raise Exception(f"Gori error: {str(e)}")
+
+    def purchase_label(self, rate_id: str, label_format: str = "PDF",
+                       signature_confirmation: Optional[str] = None) -> ShippingLabel:
+        logger.info(f"Purchasing Gori label for rate {rate_id}")
+
+        payload = {
+            "rate_id": rate_id,
+            "label_format": label_format,
+        }
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/shipments",
+                json=payload,
+                headers=self._headers(),
+                timeout=30
+            )
+
+            if response.status_code not in (200, 201):
+                raise Exception(f"Gori API returned status {response.status_code}: {response.text}")
+
+            data = response.json()
+
+            label = ShippingLabel(
+                tracking_number=data.get("tracking_number", ""),
+                label_url=data.get("label_url", data.get("label_download", "")),
+                carrier=data.get("carrier", ""),
+                service=data.get("service", ""),
+                cost=float(data.get("amount", 0)),
+                signature_confirmation=signature_confirmation,
+                label_id=data.get("id"),
+            )
+
+            logger.info(f"Purchased Gori label: {label.tracking_number}")
+            return label
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Gori label purchase error: {str(e)}")
+            raise Exception(f"Gori label purchase error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Gori error: {str(e)}")
+            raise Exception(f"Gori error: {str(e)}")
