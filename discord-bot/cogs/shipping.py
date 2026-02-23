@@ -19,26 +19,41 @@ lib_path = os.path.join(os.path.dirname(__file__), "..", "..", "shippo-frontend"
 sys.path.insert(0, lib_path)
 
 from services.gemini_client import GeminiClient
+from google.genai import types as genai_types
 
 logger = logging.getLogger(__name__)
 
-# Try to import shipping models and clients
+# Import models separately from provider clients so Address/Parcel/Rate
+# are available even when optional provider SDKs (easypost, shippo) are missing.
 try:
     from models import Address, Parcel, Rate, ValidationResult
-    from shipengine_client import ShipEngineClient
-    from easypost_client import EasyPostClient
-    from shippo_client import ShippoClient
-    SHIPPING_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Could not import shipping modules: {e}")
-    SHIPPING_AVAILABLE = False
+    logger.warning(f"Could not import shipping models: {e}")
     Address = None
     Parcel = None
     Rate = None
     ValidationResult = None
-    ShipEngineClient = None
-    EasyPostClient = None
-    ShippoClient = None
+
+# Provider clients are optional — each may require its own SDK
+ShipEngineClient = None
+EasyPostClient = None
+ShippoClient = None
+SHIPPING_AVAILABLE = False
+try:
+    from shipengine_client import ShipEngineClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
+try:
+    from easypost_client import EasyPostClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
+try:
+    from shippo_client import ShippoClient
+    SHIPPING_AVAILABLE = True
+except ImportError:
+    pass
 
 
 # --- Field display names for user-friendly messages ---
@@ -84,52 +99,6 @@ class ShipmentConfirmView(ui.View):
         await interaction.response.edit_message(content="Shipment cancelled.", embed=None, view=None)
         self.stop()
 
-
-
-class PackageTypeView(ui.View):
-    """Ask user if shipping an envelope or a box"""
-
-    def __init__(self, cog, user_id: int):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.user_id = user_id
-
-    @ui.button(label="Envelope", style=discord.ButtonStyle.primary, emoji="\u2709\ufe0f")
-    async def envelope_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        session = self.cog.sessions.get(self.user_id)
-        if session:
-            session["package_type"] = "envelope"
-
-        await interaction.response.edit_message(view=None)
-        await self.cog._show_delivery_options(interaction)
-
-    @ui.button(label="Box / Package", style=discord.ButtonStyle.primary, emoji="\U0001f4e6")
-    async def box_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        session = self.cog.sessions.get(self.user_id)
-        if session:
-            session["package_type"] = "box"
-
-        await interaction.response.edit_message(view=None)
-        await self.cog._show_delivery_options(interaction)
-
-    @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
-            return
-
-        if self.user_id in self.cog.sessions:
-            del self.cog.sessions[self.user_id]
-        await interaction.response.edit_message(content="Shipment cancelled.", embed=None, view=None)
-        self.stop()
 
 
 class DeliveryOptionsView(ui.View):
@@ -178,29 +147,29 @@ class DeliveryOptionsView(ui.View):
 
 
 class RateSelectView(ui.View):
-    """View for selecting a shipping rate — split by standard/signature"""
+    """View for selecting a shipping rate"""
 
-    def __init__(self, cog, base_rates: List, sig_rates: List, from_addr, to_addr, parcel, user_id: int):
+    def __init__(self, cog, all_rates: List, from_addr, to_addr, parcel, user_id: int):
         super().__init__(timeout=300)
         self.cog = cog
-        self.all_rates = base_rates + sig_rates
-        self.base_rates = base_rates
-        self.sig_rates = sig_rates
+        self.all_rates = all_rates
         self.from_addr = from_addr
         self.to_addr = to_addr
         self.parcel = parcel
         self.user_id = user_id
         self.selected_rate = None
+        self.rate_text = ""  # stored for "Go Back"
 
         options = []
         for i, rate in enumerate(self.all_rates[:25]):
             days = f"{rate.estimated_days}d" if rate.estimated_days else "varies"
             sig = " [SIG]" if rate.signature_confirmation else ""
+            carrier = rate.provider.split("(")[0].strip() if "(" in rate.provider else rate.provider
             label = f"${rate.amount:.2f} - {rate.servicelevel_name}{sig}"[:100]
             options.append(discord.SelectOption(
                 label=label,
                 value=str(i),
-                description=f"{rate.provider} \u2022 {days}"[:100]
+                description=f"{carrier} \u2022 {days}"[:100]
             ))
 
         if options:
@@ -254,7 +223,7 @@ class RateSelectView(ui.View):
         )
 
         view = InsuranceView(self.cog, self, embed)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(content=None, embed=embed, view=view)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -365,12 +334,11 @@ class ConfirmPurchaseView(ui.View):
             await interaction.response.send_message("This isn't your shipment!", ephemeral=True)
             return
 
-        # Rebuild a fresh RateSelectView and restore the rate embeds
+        # Rebuild a fresh RateSelectView and restore the rate text
         rv = self.rate_view
-        new_view = RateSelectView(self.cog, rv.base_rates, rv.sig_rates, rv.from_addr, rv.to_addr, rv.parcel, rv.user_id)
-        embeds = getattr(rv, 'rate_embeds', [])
-        new_view.rate_embeds = embeds
-        await interaction.response.edit_message(embeds=embeds, view=new_view)
+        new_view = RateSelectView(self.cog, rv.all_rates, rv.from_addr, rv.to_addr, rv.parcel, rv.user_id)
+        new_view.rate_text = rv.rate_text
+        await interaction.response.edit_message(content=rv.rate_text, embed=None, view=new_view)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.danger)
     async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -458,13 +426,18 @@ class ShippingCog(commands.Cog):
 
         # Start new session
         if content_lower in ["ship", "shipping", "new shipment", "create label", "new label"]:
+            default_origin = self.config.get("default_origin_address", {})
+            system_context = self.gemini.build_shipping_system_context(default_origin) if self.gemini else ""
+
             self.sessions[user_id] = {
                 "step": "awaiting_info",
                 "collected": {},
                 "missing": [],
+                "messages": [
+                    genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=system_context)]),
+                    genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="Ready to help with your shipment! Tell me the recipient details and package info.")]),
+                ],
             }
-
-            default_origin = self.config.get("default_origin_address", {})
 
             embed = discord.Embed(
                 title="\U0001f4e6 New Shipment",
@@ -496,28 +469,85 @@ class ShippingCog(commands.Cog):
                 return
 
             async with message.channel.typing():
-                result = await self.gemini.parse_shipping_info(content, session.get("collected"))
+                result = await self.gemini.process_shipping_message(
+                    content, session["messages"]
+                )
 
-            collected = result["collected"]
+            if result.get("error"):
+                logger.error(f"Gemini function calling error: {result['error']}")
+                await message.reply("\u274c AI service encountered an error. Please try again.")
+                return
 
-            # When user says "from", protect existing to_* fields and recover
-            # misidentified from data — Gemini often puts from-address data into to_* fields
-            if "from" in content_lower:
-                existing = session.get("collected", {})
-                for key in list(collected.keys()):
-                    if key.startswith("to_") and key in existing and existing[key]:
-                        # If Gemini changed a to_* field, it's likely from-address data
-                        from_key = key.replace("to_", "from_", 1)
-                        if collected[key] != existing[key] and not collected.get(from_key):
-                            collected[from_key] = collected[key]
-                        collected[key] = existing[key]
-            else:
-                # Strip hallucinated from_* fields when user didn't say "from"
-                for key in list(collected.keys()):
-                    if key.startswith("from_"):
-                        del collected[key]
-            missing = result["missing"]
-            has_dimensions = result["has_dimensions"]
+            function_calls = result["function_calls"]
+            model_response = result["model_response"]
+            logger.info(f"Gemini returned {len(function_calls)} function call(s) for user {user_id}: {[fc['name'] for fc in function_calls]}")
+
+            # Append user message + model response to history
+            session["messages"].append(
+                genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=content)])
+            )
+            if model_response:
+                session["messages"].append(model_response)
+
+            # Handle ask_clarification — relay question to user
+            for fc in function_calls:
+                if fc["name"] == "ask_clarification":
+                    question = fc["args"].get("question", "Could you clarify?")
+                    await message.reply(f"\U0001f914 {question}")
+                    # Add function response + model ack to maintain turn alternation
+                    session["messages"].append(
+                        self.gemini.build_function_responses(function_calls)
+                    )
+                    session["messages"].append(
+                        genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=question)])
+                    )
+                    return
+
+            # Process function calls to update session state
+            collected = session["collected"]
+            for fc in function_calls:
+                if fc["name"] == "set_to_address":
+                    for key, value in fc["args"].items():
+                        collected[f"to_{key}"] = value
+                elif fc["name"] == "set_from_address":
+                    for key, value in fc["args"].items():
+                        collected[f"from_{key}"] = value
+                elif fc["name"] == "set_package":
+                    for key, value in fc["args"].items():
+                        collected[key] = value
+                elif fc["name"] == "update_field":
+                    field = fc["args"].get("field", "")
+                    value = fc["args"].get("value", "")
+                    if field in collected or field.startswith(("to_", "from_")) or field in ("weight", "length", "width", "height"):
+                        # Convert numeric fields
+                        if field in ("weight", "length", "width", "height"):
+                            try:
+                                value = float(value)
+                            except (ValueError, TypeError):
+                                pass
+                        collected[field] = value
+
+            # Add function responses + synthetic model ack to history
+            # Gemini requires strict user/model turn alternation.
+            # Function responses are role=user, so we must follow with a model turn
+            # before the next user message.
+            if function_calls:
+                session["messages"].append(
+                    self.gemini.build_function_responses(function_calls)
+                )
+                session["messages"].append(
+                    genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="OK, updated.")])
+                )
+
+            # Trim history to last 20 entries to control token cost
+            if len(session["messages"]) > 20:
+                # Keep first 2 (system context) + last 18
+                session["messages"] = session["messages"][:2] + session["messages"][-18:]
+
+            # Determine missing required fields
+            required = ["to_name", "to_street", "to_city", "to_state", "to_zip", "to_phone", "weight"]
+            missing = [f for f in required if not collected.get(f)]
+            has_dimensions = all(collected.get(d) for d in ["length", "width", "height"])
 
             session["collected"] = collected
             session["missing"] = missing
@@ -544,6 +574,13 @@ class ShippingCog(commands.Cog):
                     collected_display.append(f"**Weight:** {collected['weight']} lbs")
                 if has_dimensions:
                     collected_display.append(f"**Dimensions:** {collected.get('length')}x{collected.get('width')}x{collected.get('height')} in")
+
+                # Show from-address if user provided one
+                if collected.get("from_street"):
+                    from_parts = [collected.get("from_name", ""), collected["from_street"]]
+                    if collected.get("from_city"):
+                        from_parts.append(f"{collected['from_city']}, {collected.get('from_state', '')} {collected.get('from_zip', '')}")
+                    collected_display.append(f"**From:** {', '.join(p for p in from_parts if p)}")
 
                 embed = discord.Embed(
                     title="\U0001f4cb Shipment Info",
@@ -652,14 +689,14 @@ class ShippingCog(commands.Cog):
             logger.warning(f"Could not init EasyPost for validation: {e}")
 
         if not validation_client:
-            await self._show_package_type(interaction)
+            await self._show_delivery_options(interaction)
             return
 
         try:
             result = await asyncio.to_thread(validation_client.validate_address, to_addr)
         except Exception as e:
             logger.error(f"Address validation error: {e}")
-            await self._show_package_type(interaction)
+            await self._show_delivery_options(interaction)
             return
 
         if result.is_valid and result.validated_address:
@@ -709,23 +746,7 @@ class ShippingCog(commands.Cog):
             await interaction.followup.send(embed=embed)
             return
 
-        await self._show_package_type(interaction)
-
-    async def _show_package_type(self, interaction: discord.Interaction):
-        """Ask envelope or box"""
-        user_id = interaction.user.id
-        session = self.sessions.get(user_id)
-        if not session:
-            return
-
-        embed = discord.Embed(
-            title="\u2709\ufe0f Package Type",
-            description="Is this an **envelope** or a **box/package**?",
-            color=discord.Color.blue()
-        )
-
-        view = PackageTypeView(self, user_id)
-        await interaction.followup.send(embed=embed, view=view)
+        await self._show_delivery_options(interaction)
 
     async def _show_delivery_options(self, interaction: discord.Interaction):
         """Show optional delivery options before fetching rates"""
@@ -755,26 +776,10 @@ class ShippingCog(commands.Cog):
         to_addr = session["to_addr"]
         parcel = session["parcel"]
 
-        # Determine package type for filtering returned rates
-        package_type = session.get("package_type", "box")
-        ENVELOPE_PKG_TYPES = {"flat_rate_envelope", "flat_rate_legal_envelope", "flat_rate_padded_envelope", "letter"}
-        BOX_PKG_TYPES = {"package", "small_flat_rate_box", "medium_flat_rate_box", "large_flat_rate_box", "large_flat_rate_board_game_box", "regional_rate_box_a", "regional_rate_box_b"}
-
-        def is_fedex_one_rate(rate: Rate) -> bool:
-            """FedEx One Rate requires FedEx-branded packaging, filter these out"""
-            return "one rate" in (rate.servicelevel_name or "").lower()
-
-        def matches_package_type(rate: Rate) -> bool:
-            """Filter rates based on user's envelope/box selection"""
-            if is_fedex_one_rate(rate):
-                return False
-            pkg = (rate.package_type or "").lower()
-            if not pkg:
-                return True  # Keep rates with no package_type info
-            if package_type == "envelope":
-                return pkg in ENVELOPE_PKG_TYPES
-            else:
-                return pkg not in ENVELOPE_PKG_TYPES
+        def should_exclude_rate(rate: Rate) -> bool:
+            """Filter out rates requiring special packaging or restricted contents"""
+            name = (rate.servicelevel_name or "").lower()
+            return "one rate" in name or "media mail" in name
 
         # Fetch rates from all providers in parallel (base + signature)
         all_base_rates = []
@@ -802,12 +807,9 @@ class ShippingCog(commands.Cog):
                     logger.error(f"Error fetching {rate_type} rates from {provider_name}: {e}")
                     errors.append(f"{provider_name} ({rate_type}): {e}")
 
-        # Filter by package type, then split by carrier
-        all_base_rates = [r for r in all_base_rates if matches_package_type(r)]
-        all_sig_rates = [r for r in all_sig_rates if matches_package_type(r)]
-
-        def matches_carrier(rate: Rate, carrier: str) -> bool:
-            return carrier in rate.provider.lower()
+        # Filter excluded rates and dedup
+        all_base_rates = [r for r in all_base_rates if not should_exclude_rate(r)]
+        all_sig_rates = [r for r in all_sig_rates if not should_exclude_rate(r)]
 
         def dedup_rates(rates: List[Rate]) -> List[Rate]:
             seen = {}
@@ -817,68 +819,69 @@ class ShippingCog(commands.Cog):
                     seen[key] = rate
             return sorted(seen.values(), key=lambda r: r.amount)
 
-        # Build per-carrier rate lists
-        fedex_base = dedup_rates([r for r in all_base_rates if matches_carrier(r, "fedex")])
-        fedex_sig = dedup_rates([r for r in all_sig_rates if matches_carrier(r, "fedex")])
-        usps_base = dedup_rates([r for r in all_base_rates if matches_carrier(r, "usps")])
-        usps_sig = dedup_rates([r for r in all_sig_rates if matches_carrier(r, "usps")])
+        base_rates = dedup_rates(all_base_rates)
+        sig_rates = dedup_rates(all_sig_rates)
+        all_rates = base_rates + sig_rates
 
-        all_rates_combined = fedex_base + fedex_sig + usps_base + usps_sig
-
-        if not all_rates_combined:
+        if not all_rates:
             error_detail = "\n".join(errors) if errors else "No rates available."
             await interaction.followup.send(f"\u274c No rates found.\n{error_detail}")
             return
 
-        session["rates"] = {
-            "fedex_base": fedex_base, "fedex_sig": fedex_sig,
-            "usps_base": usps_base, "usps_sig": usps_sig,
-        }
+        session["rates"] = all_rates
+
+        # --- Build plain text rate display ---
+        def carrier_tag(rate: Rate) -> str:
+            p = rate.provider.lower()
+            if "fedex" in p: return "FedEx"
+            if "usps" in p: return "USPS"
+            if "ups" in p: return "UPS"
+            return rate.provider.split("(")[0].strip()
 
         def fmt_pkg(pkg_type: str) -> str:
-            """Format package_type for display"""
             if not pkg_type or pkg_type == "package":
                 return ""
             return " (" + pkg_type.replace("_", " ").title() + ")"
 
-        def fmt_rate_line(r, sig=False):
-            days = f"{r.estimated_days}d" if r.estimated_days else "varies"
-            sig_tag = " [SIG]" if sig else ""
+        def fmt_rate_line(r: Rate) -> str:
+            price = f"${r.amount:.2f}"
+            days = f"{r.estimated_days}d" if r.estimated_days else "?"
             pkg = fmt_pkg(r.package_type or "")
-            return f"**${r.amount:.2f}** \u2022 {r.servicelevel_name}{pkg}{sig_tag} \u2022 {days}"
+            carrier = carrier_tag(r)
+            name = f"{r.servicelevel_name}{pkg}"
+            return f"{price:<8} {carrier:<6} {name:<34} {days}"
 
-        # Build FedEx embed
-        fedex_embed = discord.Embed(
-            title="\U0001f69a FedEx Rates",
-            color=discord.Color.purple()
-        )
-        if fedex_base:
-            lines = [fmt_rate_line(r) for r in fedex_base[:8]]
-            fedex_embed.add_field(name="Standard", value="\n".join(lines), inline=False)
-        if fedex_sig:
-            lines = [fmt_rate_line(r, sig=True) for r in fedex_sig[:8]]
-            fedex_embed.add_field(name="Signature Required", value="\n".join(lines), inline=False)
-        if not fedex_base and not fedex_sig:
-            fedex_embed.description = "No FedEx rates available"
+        # Header with best picks
+        cheapest = min(all_rates, key=lambda r: r.amount)
+        fastest = min(all_rates, key=lambda r: (r.estimated_days or 999, r.amount))
 
-        # Build USPS embed
-        usps_embed = discord.Embed(
-            title="\U0001f4ee USPS Rates",
-            color=discord.Color.blue()
-        )
-        if usps_base:
-            lines = [fmt_rate_line(r) for r in usps_base[:8]]
-            usps_embed.add_field(name="Standard", value="\n".join(lines), inline=False)
-        if usps_sig:
-            lines = [fmt_rate_line(r, sig=True) for r in usps_sig[:8]]
-            usps_embed.add_field(name="Signature Required", value="\n".join(lines), inline=False)
-        if not usps_base and not usps_sig:
-            usps_embed.description = "No USPS rates available"
+        lines = [f"\U0001f4e6 **{len(all_rates)} rates found**\n"]
+        lines.append(f"\u2b50 Cheapest: **${cheapest.amount:.2f}** \u2014 {carrier_tag(cheapest)} {cheapest.servicelevel_name} ({cheapest.estimated_days or '?'}d)")
+        if fastest.object_id != cheapest.object_id:
+            lines.append(f"\u26a1 Fastest:  **${fastest.amount:.2f}** \u2014 {carrier_tag(fastest)} {fastest.servicelevel_name} ({fastest.estimated_days or '?'}d)")
+        lines.append("")
 
-        rate_embeds = [fedex_embed, usps_embed]
-        view = RateSelectView(self, fedex_base + usps_base, fedex_sig + usps_sig, from_addr, to_addr, parcel, user_id)
-        view.rate_embeds = rate_embeds
-        await interaction.followup.send(embeds=rate_embeds, view=view)
+        # Standard rates
+        if base_rates:
+            lines.append("\u2500\u2500 Standard \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+            lines.append("```")
+            for r in base_rates[:12]:
+                lines.append(fmt_rate_line(r))
+            lines.append("```")
+
+        # Signature rates
+        if sig_rates:
+            lines.append("\u2500\u2500 Signature Required \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+            lines.append("```")
+            for r in sig_rates[:12]:
+                lines.append(fmt_rate_line(r))
+            lines.append("```")
+
+        rate_text = "\n".join(lines)
+
+        view = RateSelectView(self, all_rates, from_addr, to_addr, parcel, user_id)
+        view.rate_text = rate_text
+        await interaction.followup.send(content=rate_text, view=view)
 
     async def _purchase_label(self, interaction: discord.Interaction, view: RateSelectView):
         """Purchase the selected shipping label"""
@@ -1030,13 +1033,18 @@ class ShippingCog(commands.Cog):
             await interaction.response.send_message("Shipping service not configured.", ephemeral=True)
             return
 
+        default_origin = self.config.get("default_origin_address", {})
+        system_context = self.gemini.build_shipping_system_context(default_origin) if self.gemini else ""
+
         self.sessions[interaction.user.id] = {
             "step": "awaiting_info",
             "collected": {},
             "missing": [],
+            "messages": [
+                genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=system_context)]),
+                genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="Ready to help with your shipment! Tell me the recipient details and package info.")]),
+            ],
         }
-
-        default_origin = self.config.get("default_origin_address", {})
 
         embed = discord.Embed(
             title="\U0001f4e6 New Shipment",

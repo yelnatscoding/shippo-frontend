@@ -2,6 +2,7 @@
 
 import email
 import smtplib
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from imapclient import IMAPClient
@@ -42,11 +43,16 @@ class EmailClient:
                 client.login(self.email_address, self.password)
                 client.select_folder(folder)
 
-                # Search for unseen emails or emails after a UID
+                # Search for emails after a UID, or recent emails on first run
                 if since_uid and since_uid > 0:
                     messages = client.search(["UID", f"{since_uid + 1}:*"])
+                    # IMAP quirk: UID X:* always returns the highest UID even
+                    # when X exceeds it. Filter out already-seen UIDs.
+                    messages = [m for m in messages if m > since_uid]
                 else:
-                    messages = client.search(["UNSEEN"])
+                    # First run: scan last 30 days regardless of read status
+                    since_date = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
+                    messages = client.search(["SINCE", since_date])
 
                 if not messages:
                     return emails
@@ -84,6 +90,15 @@ class EmailClient:
                                     "content_type": content_type,
                                     "content": content
                                 })
+                            elif content_type == "text/calendar":
+                                # Inline ICS (most calendar invites use this)
+                                content = part.get_payload(decode=True)
+                                if content:
+                                    email_dict["attachments"].append({
+                                        "filename": "invite.ics",
+                                        "content_type": content_type,
+                                        "content": content
+                                    })
                             elif content_type == "text/plain":
                                 payload = part.get_payload(decode=True)
                                 if payload:

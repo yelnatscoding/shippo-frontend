@@ -142,7 +142,7 @@ class CalendarParser:
         from_addr = email_dict.get("from", "").lower()
 
         # Check for calendar keywords in subject
-        calendar_keywords = ["invitation", "meeting", "calendar", "event", "rsvp", "invite"]
+        calendar_keywords = ["invitation", "meeting", "calendar", "event", "rsvp", "invite", "accepted:", "declined:", "tentative:"]
         if any(kw in subject for kw in calendar_keywords):
             return True
 
