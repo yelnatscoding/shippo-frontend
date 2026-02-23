@@ -77,3 +77,61 @@ class GoriClient:
         if address.email:
             addr["email"] = address.email
         return addr
+
+    def get_rates(self, from_address: Address, to_address: Address, parcel: Parcel,
+                  signature_confirmation: Optional[str] = None) -> List[Rate]:
+        sig_info = f" with signature={signature_confirmation}" if signature_confirmation else ""
+        logger.info(f"Getting rates from Gori{sig_info}")
+
+        payload = {
+            "from_address": self._address_to_dict(from_address),
+            "to_address": self._address_to_dict(to_address),
+            "parcel": {
+                "length": parcel.length,
+                "width": parcel.width,
+                "height": parcel.height,
+                "weight": parcel.weight,
+                "distance_unit": parcel.distance_unit,
+                "mass_unit": parcel.mass_unit,
+            },
+            "ship_date": date.today().isoformat(),
+        }
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/shipments/rates",
+                json=payload,
+                headers=self._headers(),
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"Gori API returned status {response.status_code}: {response.text}")
+
+            data = response.json()
+            rates = []
+
+            for rate_data in data.get("rates", []):
+                rate = Rate(
+                    object_id=rate_data.get("id", ""),
+                    provider=rate_data.get("carrier", "Gori"),
+                    servicelevel_name=rate_data.get("service", ""),
+                    servicelevel_token=rate_data.get("id", ""),
+                    amount=float(rate_data.get("amount", 0)),
+                    currency=rate_data.get("currency", "USD"),
+                    estimated_days=rate_data.get("estimated_days"),
+                    duration_terms=f"{rate_data.get('estimated_days', '?')} days" if rate_data.get("estimated_days") else None,
+                    shipment_id=data.get("shipment_id"),
+                    signature_confirmation=signature_confirmation,
+                )
+                rates.append(rate)
+
+            logger.info(f"Retrieved {len(rates)} rates from Gori")
+            return rates
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Gori API request error: {str(e)}")
+            raise Exception(f"Gori API error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Gori error: {str(e)}")
+            raise Exception(f"Gori error: {str(e)}")
